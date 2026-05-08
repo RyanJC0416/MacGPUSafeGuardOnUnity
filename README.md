@@ -19,10 +19,11 @@ Mac 上 Unity Editor 的 GPU 冻结防护工具。
 
 1. 下载 [Latest Release](https://github.com/RyanJC0416/MacGPUSafeGuardOnUnity/releases/latest) 中的 `GpuSafeGuard.app.zip`
 2. 解压到任意目录
-3. 首次运行前在终端执行：
-   - 终端里输入 `xattr -cr `（注意末尾留一个空格）
-   - 把 `GpuSafeGuard.app` 从 Finder **拖到终端里**，路径会自动补上
-   - 按回车执行
+3. 首次运行前在终端执行（把 `/你的实际路径/` 替换成 app 实际存放的目录）：
+   ```bash
+   xattr -cr /你的实际路径/GpuSafeGuard.app
+   ```
+   不知道路径的话，终端里输入 `xattr -cr `（末尾留空格），再把 app 从 Finder 拖到终端，路径会自动补上，然后回车。
 4. 双击打开
 
 ## 使用
