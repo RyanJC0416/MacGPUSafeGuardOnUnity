@@ -1,0 +1,14 @@
+# macOS
+.DS_Store
+
+# Build artifacts (root only — release/ is tracked)
+/GpuSafeGuard.app/
+
+# Runtime data
+snapshots/
+
+# IDE / Tooling
+.omc/
+
+# Logs
+*.log

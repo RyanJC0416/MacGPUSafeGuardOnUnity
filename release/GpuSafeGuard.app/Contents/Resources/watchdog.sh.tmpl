@@ -1,0 +1,311 @@
+#!/bin/bash
+set -euo pipefail
+
+PROJECT_PATH="@@PROJECT_PATH@@"
+UNITY_BIN="@@UNITY_BIN@@"
+UNITY_LOG="$HOME/Library/Logs/Unity/Editor.log"
+BASE_DIR="@@BASE_DIR@@"
+RUN_LOG="$BASE_DIR/watchdog.log"
+PID_FILE="$BASE_DIR/watchdog.pid"
+STATE_FILE="$BASE_DIR/watchdog.state"
+POLL_SECONDS=3
+SAMPLE_SECONDS=1
+REPEAT_THRESHOLD=3
+STAGNANT_THRESHOLD=5
+KILL_GRACE_SECONDS=5
+
+# canonicalize project path so command-line filter survives symlinks/trailing slashes
+if command -v realpath >/dev/null 2>&1 && [ -e "$PROJECT_PATH" ]; then
+  PROJECT_PATH="$(realpath "$PROJECT_PATH" 2>/dev/null || printf '%s' "$PROJECT_PATH")"
+fi
+PROJECT_PATH="${PROJECT_PATH%/}"
+PROJECT_TAIL="$(basename "$(dirname "$PROJECT_PATH")")/$(basename "$PROJECT_PATH")"
+
+mkdir -p "$BASE_DIR"
+
+ts() {
+  date '+%Y-%m-%d %H:%M:%S'
+}
+
+log() {
+  local line="[$(ts)] $*"
+  echo "$line" >> "$RUN_LOG"
+}
+
+find_unity_pid() {
+  local line
+  local found_pid=""
+  local rest
+  while IFS= read -r line; do
+    [[ "$line" != *"$UNITY_BIN"* ]] && continue
+    [[ "$line" == *" -batchMode "* ]] && continue
+    [[ "$line" == *"AssetImportWorker"* ]] && continue
+    [[ "$line" != *"-projectPath"*"$PROJECT_TAIL"* && "$line" != *"-projectpath"*"$PROJECT_TAIL"* ]] && continue
+    if [ -z "$found_pid" ]; then
+      read -r found_pid rest <<<"$line"
+    fi
+  done < <(ps -axo pid=,command=)
+
+  printf '%s\n' "$found_pid"
+}
+
+log_signature() {
+  if [ -f "$UNITY_LOG" ]; then
+    stat -f '%m:%z' "$UNITY_LOG"
+  else
+    echo 'missing'
+  fi
+}
+
+recent_issue_present() {
+  [ -f "$UNITY_LOG" ] || return 1
+  local recent_log
+  recent_log=$(tail -n 600 "$UNITY_LOG" 2>/dev/null || true)
+  [[ "$recent_log" =~ The\ RT\ of\ per\ object\ shadow\ is\ out\ of\ range\!|Skipping\ draw\ calls\ to\ avoid\ crashing|ComputeBuffer.*none\ provided ]]
+}
+
+extract_signature() {
+  local sample_file="$1"
+  awk '
+    /UIRenderDevice|PlayModeView|UniversalRenderPipeline|RenderSingleCamera|ShadowCacheRendererFeature|MainLightPerObjectShadowPass|PerObjectShadowAtlasManager|GfxDeviceMetal|Metal/ {
+      gsub(/[[:space:]]+/, " ");
+      sub(/^ /, "");
+      out = out (count ? "|" : "") $0;
+      count++;
+      if (count >= 10) {
+        done = 1;
+        print out;
+        exit;
+      }
+    }
+    END {
+      if (!done) {
+        print out;
+      }
+    }
+  ' "$sample_file" 2>/dev/null
+}
+
+write_state() {
+  cat > "$STATE_FILE" <<EOF
+LAST_PID=${LAST_PID:-}
+LAST_SIG_B64=${LAST_SIG_B64:-}
+REPEAT_COUNT=${REPEAT_COUNT:-0}
+STAGNANT_COUNT=${STAGNANT_COUNT:-0}
+LAST_LOG_SIG=${LAST_LOG_SIG:-unknown}
+EOF
+}
+
+load_state() {
+  LAST_PID=""
+  LAST_SIG_B64=""
+  REPEAT_COUNT=0
+  STAGNANT_COUNT=0
+  LAST_LOG_SIG="unknown"
+  if [ -f "$STATE_FILE" ]; then
+    # shellcheck disable=SC1090
+    source "$STATE_FILE"
+  fi
+}
+
+snapshot_and_kill() {
+  local pid="$1"
+  local reason="$2"
+  local last_sample_file="$3"
+  local stamp
+  stamp=$(date '+%Y%m%d_%H%M%S')
+  local snapshot_file="$BASE_DIR/Editor.log.snapshot_$stamp"
+  local sample_file="$BASE_DIR/Unity.sample_$stamp.txt"
+  local summary_file="$BASE_DIR/watchdog_summary_$stamp.txt"
+
+  if [ -f "$UNITY_LOG" ]; then
+    cp "$UNITY_LOG" "$snapshot_file"
+  fi
+
+  if [ -f "$last_sample_file" ]; then
+    cp "$last_sample_file" "$sample_file"
+  else
+    sample "$pid" 5 -file "$sample_file" >/dev/null 2>&1 || true
+  fi
+
+  {
+    echo "timestamp=$(ts)"
+    echo "pid=$pid"
+    echo "reason=$reason"
+    echo "project=$PROJECT_PATH"
+    echo '--- ps ---'
+    ps -p "$pid" -o pid,ppid,stat,%cpu,etime,command || true
+    echo '--- recent MacGPUSafeGuard ---'
+    [ -f "$snapshot_file" ] && grep -n '\[MacGPUSafeGuard\]' "$snapshot_file" | tail -40 || true
+    echo '--- recent ShadowCache out of range ---'
+    [ -f "$snapshot_file" ] && grep -n 'The RT of per object shadow is out of range!' "$snapshot_file" | tail -40 || true
+    echo '--- recent crash-skipping draws ---'
+    [ -f "$snapshot_file" ] && grep -n 'Skipping draw calls to avoid crashing\|ComputeBuffer.*none provided' "$snapshot_file" | tail -40 || true
+  } > "$summary_file"
+
+  log "freeze detected: $reason"
+  log "snapshot saved => $snapshot_file"
+  log "sample saved => $sample_file"
+  log "summary saved => $summary_file"
+  kill -TERM "$pid" >/dev/null 2>&1 || true
+  sleep "$KILL_GRACE_SECONDS"
+  if kill -0 "$pid" >/dev/null 2>&1; then
+    log "pid $pid still alive after TERM, sending KILL"
+    kill -9 "$pid" >/dev/null 2>&1 || true
+  else
+    log "pid $pid exited after TERM"
+  fi
+}
+
+monitor_loop() {
+  load_state
+  log "watchdog loop started; project=$PROJECT_PATH poll=${POLL_SECONDS}s"
+
+  while true; do
+    local pid
+    pid=$(find_unity_pid)
+    if [ -z "$pid" ]; then
+      LAST_PID=""
+      LAST_SIG_B64=""
+      REPEAT_COUNT=0
+      STAGNANT_COUNT=0
+      LAST_LOG_SIG="unknown"
+      write_state
+      sleep "$POLL_SECONDS"
+      continue
+    fi
+
+    local current_log_sig
+    current_log_sig=$(log_signature)
+    if [ "$current_log_sig" = "$LAST_LOG_SIG" ]; then
+      STAGNANT_COUNT=$((STAGNANT_COUNT + 1))
+    else
+      STAGNANT_COUNT=0
+      LAST_LOG_SIG="$current_log_sig"
+    fi
+
+    local tmp_sample
+    tmp_sample=$(mktemp "$BASE_DIR/sample_check.XXXXXX.txt")
+    sample "$pid" "$SAMPLE_SECONDS" 1 > "$tmp_sample" 2>&1 || true
+
+    local sig
+    sig=$(extract_signature "$tmp_sample")
+    local sig_b64=""
+    if [ -n "$sig" ]; then
+      sig_b64=$(printf '%s' "$sig" | base64)
+    fi
+
+    if [ -n "$sig_b64" ] && [ "$pid" = "$LAST_PID" ] && [ "$sig_b64" = "$LAST_SIG_B64" ]; then
+      REPEAT_COUNT=$((REPEAT_COUNT + 1))
+    else
+      REPEAT_COUNT=0
+      LAST_PID="$pid"
+      LAST_SIG_B64="$sig_b64"
+    fi
+
+    write_state
+
+    if [ -n "$sig_b64" ] && [ "$REPEAT_COUNT" -ge "$REPEAT_THRESHOLD" ]; then
+      local reason="render stack frozen for ${REPEAT_COUNT}s"
+      if recent_issue_present; then
+        reason="render stack frozen for ${REPEAT_COUNT}s with ShadowCache/Metal issue"
+      fi
+      snapshot_and_kill "$pid" "$reason" "$tmp_sample"
+      rm -f "$tmp_sample"
+      LAST_PID=""
+      LAST_SIG_B64=""
+      REPEAT_COUNT=0
+      STAGNANT_COUNT=0
+      LAST_LOG_SIG="unknown"
+      write_state
+      sleep "$POLL_SECONDS"
+      continue
+    fi
+
+    if [ "$STAGNANT_COUNT" -ge "$STAGNANT_THRESHOLD" ]; then
+      snapshot_and_kill "$pid" "editor log stagnant for $((STAGNANT_COUNT * POLL_SECONDS))s" "$tmp_sample"
+      rm -f "$tmp_sample"
+      LAST_PID=""
+      LAST_SIG_B64=""
+      REPEAT_COUNT=0
+      STAGNANT_COUNT=0
+      LAST_LOG_SIG="unknown"
+      write_state
+      sleep "$POLL_SECONDS"
+      continue
+    fi
+
+    rm -f "$tmp_sample"
+    sleep "$POLL_SECONDS"
+  done
+}
+
+start_watchdog() {
+  if [ -f "$PID_FILE" ]; then
+    local existing
+    existing=$(cat "$PID_FILE" 2>/dev/null || true)
+    if [ -n "$existing" ] && kill -0 "$existing" >/dev/null 2>&1; then
+      echo "watchdog already running: pid=$existing"
+      exit 0
+    fi
+  fi
+
+  nohup bash "$0" run >> "$RUN_LOG" 2>&1 &
+  local bg_pid=$!
+  echo "$bg_pid" > "$PID_FILE"
+  echo "watchdog started: pid=$bg_pid"
+}
+
+stop_watchdog() {
+  if [ ! -f "$PID_FILE" ]; then
+    echo 'watchdog not running'
+    exit 0
+  fi
+
+  local pid
+  pid=$(cat "$PID_FILE" 2>/dev/null || true)
+  if [ -z "$pid" ]; then
+    rm -f "$PID_FILE"
+    echo 'watchdog pid file was empty; cleaned'
+    exit 0
+  fi
+
+  if kill -0 "$pid" >/dev/null 2>&1; then
+    kill -TERM "$pid" >/dev/null 2>&1 || true
+    echo "watchdog stopped: pid=$pid"
+  else
+    echo "watchdog not alive, cleaned stale pid=$pid"
+  fi
+  rm -f "$PID_FILE"
+}
+
+status_watchdog() {
+  if [ -f "$PID_FILE" ]; then
+    local pid
+    pid=$(cat "$PID_FILE" 2>/dev/null || true)
+    if [ -n "$pid" ] && kill -0 "$pid" >/dev/null 2>&1; then
+      echo "watchdog running: pid=$pid"
+      exit 0
+    fi
+  fi
+  echo 'watchdog not running'
+}
+
+case "${1:-start}" in
+  start)
+    start_watchdog
+    ;;
+  stop)
+    stop_watchdog
+    ;;
+  status)
+    status_watchdog
+    ;;
+  run)
+    monitor_loop
+    ;;
+  *)
+    echo "usage: $0 {start|stop|status|run}"
+    exit 1
+    ;;
+esac
