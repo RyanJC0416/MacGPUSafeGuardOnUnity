@@ -239,19 +239,6 @@ monitor_loop() {
       continue
     fi
 
-    if [ "$STAGNANT_COUNT" -ge "$STAGNANT_THRESHOLD" ]; then
-      snapshot_and_kill "$pid" "editor log stagnant for $((STAGNANT_COUNT * POLL_SECONDS))s" "$tmp_sample"
-      rm -f "$tmp_sample"
-      LAST_PID=""
-      LAST_SIG_B64=""
-      REPEAT_COUNT=0
-      STAGNANT_COUNT=0
-      LAST_LOG_SIG="unknown"
-      write_state
-      sleep "$POLL_SECONDS"
-      continue
-    fi
-
     rm -f "$tmp_sample"
     sleep "$POLL_SECONDS"
   done
