@@ -17,6 +17,8 @@ HUB_PATTERN='Unity Hub\.app'
 UNITY_LOG="${HOME}/Library/Logs/Unity/Editor.log"
 SNAPSHOT_BASE="${HOME}/Library/Application Support/MacGPUSafeGuard/snapshots"
 WATCHDOG_LOG="${HOME}/Library/Application Support/MacGPUSafeGuard/watchdog/watchdog.log"
+HEARTBEAT_PATH="${HOME}/Library/Application Support/MacGPUSafeGuard/heartbeat"
+COMPILING_PATH="${HOME}/Library/Application Support/MacGPUSafeGuard/compiling"
 
 ts() { date '+%Y-%m-%d %H:%M:%S'; }
 log_watchdog() {
@@ -59,6 +61,27 @@ save_snapshot() {
         echo "timestamp=$(date '+%Y-%m-%d %H:%M:%S')"
         echo "pid=$pid"
         echo "label=$label"
+        echo '--- heartbeat ---'
+        if [[ -f "$HEARTBEAT_PATH" ]]; then
+            local hb_ts hb_now hb_stale
+            hb_ts=$(cat "$HEARTBEAT_PATH" 2>/dev/null || echo "unknown")
+            hb_now=$(date +%s)
+            if [[ "$hb_ts" =~ ^[0-9]+$ ]]; then
+                hb_stale=$((hb_now - hb_ts))
+                echo "heartbeat_ts=$hb_ts"
+                echo "heartbeat_stale_seconds=$hb_stale"
+            else
+                echo "heartbeat_ts=$hb_ts"
+                echo "heartbeat_stale_seconds=unknown"
+            fi
+            if [[ -f "$COMPILING_PATH" ]]; then
+                echo "compiling_flag=true"
+            else
+                echo "compiling_flag=false"
+            fi
+        else
+            echo "heartbeat=missing"
+        fi
         echo '--- ps ---'
         ps -p "$pid" -o pid,ppid,stat,%cpu,etime,command || true
         echo '--- recent MacGPUSafeGuard ---'
