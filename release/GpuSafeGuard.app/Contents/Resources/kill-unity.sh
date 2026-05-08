@@ -16,6 +16,12 @@ EDITOR_PATTERN='Unity\.app/Contents/MacOS/Unity'
 HUB_PATTERN='Unity Hub\.app'
 UNITY_LOG="${HOME}/Library/Logs/Unity/Editor.log"
 SNAPSHOT_BASE="${HOME}/Library/Application Support/MacGPUSafeGuard/snapshots"
+WATCHDOG_LOG="${HOME}/Library/Application Support/MacGPUSafeGuard/watchdog/watchdog.log"
+
+ts() { date '+%Y-%m-%d %H:%M:%S'; }
+log_watchdog() {
+    echo "[$(ts)] $*" >> "$WATCHDOG_LOG"
+}
 
 print_help() {
     sed -n '2,11p' "$0" | sed 's/^# \{0,1\}//'
@@ -84,11 +90,13 @@ kill_pattern() {
 
     echo "  $label: killing $(echo "$pids" | wc -l | tr -d ' ') process(es)"
     kill -9 $pids 2>/dev/null || true
+    log_watchdog "manual kill: $label pids=$pids"
     sleep 0.3
     local remain
     remain=$(pgrep -f "$pattern" || true)
     if [[ -n "$remain" ]]; then
         echo "  $label: WARN, still running: $remain"
+        log_watchdog "manual kill: $label failed, still running: $remain"
         return 1
     fi
     echo "  $label: done"
