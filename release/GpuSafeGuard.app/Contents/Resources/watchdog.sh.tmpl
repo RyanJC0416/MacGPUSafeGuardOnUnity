@@ -13,6 +13,7 @@ SAMPLE_SECONDS=1
 REPEAT_THRESHOLD=3
 STAGNANT_THRESHOLD=5
 KILL_GRACE_SECONDS=5
+PLAYMODE_FLAG="$HOME/Library/Application Support/MacGPUSafeGuard/in_playmode"
 
 # canonicalize project path so command-line filter survives symlinks/trailing slashes
 if command -v realpath >/dev/null 2>&1 && [ -e "$PROJECT_PATH" ]; then
@@ -222,6 +223,13 @@ monitor_loop() {
     write_state
 
     if [ -n "$sig_b64" ] && [ "$REPEAT_COUNT" -ge "$REPEAT_THRESHOLD" ]; then
+      if [ ! -f "$PLAYMODE_FLAG" ]; then
+        log "edit mode detected, skip kill (render stack frozen for $((REPEAT_COUNT * POLL_SECONDS))s)"
+        REPEAT_COUNT=0
+        rm -f "$tmp_sample"
+        sleep "$POLL_SECONDS"
+        continue
+      fi
       local reason="render stack frozen for $((REPEAT_COUNT * POLL_SECONDS))s (cpu stagnant)"
       if recent_issue_present; then
         reason="render stack frozen for $((REPEAT_COUNT * POLL_SECONDS))s with ShadowCache/Metal issue"
