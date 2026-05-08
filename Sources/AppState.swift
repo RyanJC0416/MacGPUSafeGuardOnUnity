@@ -25,6 +25,7 @@ final class AppState: ObservableObject {
     @Published var injectorTargets: [InjectorTarget] = UnityInjector.targetSpecs
     @Published var lastApplyResults: [InjectorResult] = []
     @Published var processList: String = ""
+    @Published var updateStatus: UpdateStatus = .idle
 
     @Published private(set) var busy: Set<BusyKind> = []
 
@@ -45,16 +46,17 @@ final class AppState: ObservableObject {
     init() {
         let d = UserDefaults.standard
         d.register(defaults: [
-            DefaultsKey.p4Binary: "/usr/local/bin/p4",
-            DefaultsKey.unityProjectPath: "/Users/ryan/Perforce/WorkSpace_Ryan_Mac/client/unity",
-            DefaultsKey.unityEditorBinary: "/Applications/Unity/Unity.app/Contents/MacOS/Unity",
-            DefaultsKey.defaultChangelist: "191167",
+            DefaultsKey.p4Binary: "",
+            DefaultsKey.unityProjectPath: "",
+            DefaultsKey.unityEditorBinary: "",
+            DefaultsKey.defaultChangelist: "",
         ])
-        self.p4Binary = d.string(forKey: DefaultsKey.p4Binary) ?? "/usr/local/bin/p4"
+        self.p4Binary = d.string(forKey: DefaultsKey.p4Binary) ?? ""
         self.unityProjectPath = d.string(forKey: DefaultsKey.unityProjectPath) ?? ""
         self.unityEditorBinary = d.string(forKey: DefaultsKey.unityEditorBinary) ?? ""
         self.defaultChangelist = d.string(forKey: DefaultsKey.defaultChangelist) ?? ""
         startBackgroundRefresh()
+        checkForUpdates()
     }
 
     func makeP4() -> P4Manager {
@@ -257,6 +259,45 @@ final class AppState: ObservableObject {
                 self.lastApplyResults = results
                 self.injectorTargets = targets
                 self.busy.remove(.apply)
+            }
+        }
+    }
+
+    func checkForUpdates() {
+        guard updateStatus != .checking && updateStatus != .downloading(progress: "") && updateStatus != .installing else { return }
+        updateStatus = .checking
+        Task.detached(priority: .background) {
+            let result = await Updater.check()
+            await MainActor.run {
+                if let err = result.error {
+                    self.updateStatus = .error(err)
+                } else if result.hasUpdate, let url = result.downloadURL {
+                    self.updateStatus = .available(version: result.latestVersion, url: url)
+                } else {
+                    self.updateStatus = .upToDate
+                }
+            }
+        }
+    }
+
+    func downloadAndInstallUpdate(version: String, url: String) {
+        guard updateStatus != .downloading(progress: "") && updateStatus != .installing else { return }
+        updateStatus = .downloading(progress: "0%")
+        Task.detached(priority: .userInitiated) {
+            let err = await Updater.download(version: version, url: url)
+            await MainActor.run {
+                if let err = err {
+                    self.updateStatus = .error(err)
+                    return
+                }
+                self.updateStatus = .downloaded(version: version)
+                let installErr = Updater.install(version: version)
+                if let installErr = installErr {
+                    self.updateStatus = .error(installErr)
+                } else {
+                    self.updateStatus = .installing
+                    NSApplication.shared.terminate(nil)
+                }
             }
         }
     }

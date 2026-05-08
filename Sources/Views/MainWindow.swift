@@ -46,6 +46,7 @@ struct MainWindow: View {
                     .font(.title2)
                     .bold()
                 Spacer()
+                UpdateBadge()
                 Button("Settings") {
                     openWindow(id: "settings")
                 }
@@ -55,17 +56,70 @@ struct MainWindow: View {
 
             Divider()
 
-            ScrollView {
-                VStack(spacing: 16) {
-                    WatchdogTab()
-                    KillToolsTab()
-                }
-                .padding(16)
+            VStack(spacing: 16) {
+                WatchdogTab()
+                KillToolsTab()
             }
+            .padding(16)
         }
-        .frame(minWidth: 740, minHeight: 580)
+        .frame(minWidth: 740, minHeight: 700)
         .onAppear {
             state.refreshWatchdog()
+        }
+    }
+
+    @ViewBuilder
+    private func UpdateBadge() -> some View {
+        switch state.updateStatus {
+        case .checking:
+            HStack(spacing: 4) {
+                ProgressView().controlSize(.small)
+                Text("Checking…").font(.caption)
+            }
+        case .available(let version, _):
+            HStack(spacing: 4) {
+                Image(systemName: "arrow.down.circle.fill")
+                    .foregroundColor(.blue)
+                Text("v\(version) available")
+                    .font(.caption)
+                    .foregroundColor(.blue)
+                Button("Update") {
+                    if case .available(let v, let url) = state.updateStatus {
+                        state.downloadAndInstallUpdate(version: v, url: url)
+                    }
+                }
+                .controlSize(.small)
+                .buttonStyle(.borderedProminent)
+            }
+        case .downloading:
+            HStack(spacing: 4) {
+                ProgressView().controlSize(.small)
+                Text("Downloading…").font(.caption)
+            }
+        case .installing:
+            HStack(spacing: 4) {
+                ProgressView().controlSize(.small)
+                Text("Installing…").font(.caption)
+            }
+        case .upToDate:
+            HStack(spacing: 4) {
+                Image(systemName: "checkmark.circle.fill")
+                    .foregroundColor(.green)
+                Text("v\(Updater.currentVersion())")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            }
+        case .error(let msg):
+            HStack(spacing: 4) {
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .foregroundColor(.orange)
+                Text(msg)
+                    .font(.caption)
+                    .foregroundColor(.orange)
+                    .lineLimit(1)
+            }
+        default:
+            EmptyView()
         }
     }
 }

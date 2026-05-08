@@ -42,7 +42,7 @@ struct KillToolsTab: View {
                 }
                 .background(Color(NSColor.textBackgroundColor))
                 .cornerRadius(6)
-                .frame(minHeight: 80, maxHeight: 200)
+                .frame(height: 120)
             }
 
             Spacer()

@@ -34,6 +34,11 @@ Mac 上 Unity Editor 的 GPU 冻结防护工具。
 
 ## 更新历史
 
+### v1.2.9
+- C# 心跳检测：Unity Play Mode 下每 3s 向外部写心跳，watchdog 10s 无心跳自动杀（shader 编译时自动放宽到 20s）
+- 覆盖 C# 死循环类卡顿：原有 render-stack 检测覆盖 GPU 渲染冻结，心跳检测覆盖逻辑死循环
+- 所有 kill（自动/手动）快照统一增加心跳状态记录，便于后续排查
+
 ### v1.2.2
 - 修复 GitHub release API 解析失败的问题
 

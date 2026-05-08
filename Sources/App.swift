@@ -18,7 +18,7 @@ struct GpuSafeGuardApp: App {
                 .environmentObject(state)
                 .frame(minWidth: 740, minHeight: 580)
         }
-        .defaultSize(width: 760, height: 600)
+        .defaultSize(width: 780, height: 720)
         .defaultPosition(.center)
 
         WindowGroup(id: "settings") {
@@ -108,6 +108,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         menu.addItem(NSMenuItem.separator())
 
+        let checkUpdate = NSMenuItem(title: "Check for Updates…", action: #selector(checkForUpdatesMenu), keyEquivalent: "")
+        checkUpdate.target = self
+        menu.addItem(checkUpdate)
+
+        menu.addItem(NSMenuItem.separator())
+
         let quit = NSMenuItem(title: "Quit GpuSafeGuard", action: #selector(quitApp), keyEquivalent: "q")
         quit.target = self
         menu.addItem(quit)
@@ -130,6 +136,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if let toggle = menu.item(at: 3) {
             toggle.title = state.watchdogStatus.running ? "Watchdog: ON" : "Watchdog: OFF"
             toggle.state = state.watchdogStatus.running ? .on : .off
+        }
+        if let updateItem = menu.item(withTitle: "Check for Updates…") {
+            switch state.updateStatus {
+            case .checking:
+                updateItem.title = "Checking for Updates…"
+                updateItem.isEnabled = false
+            case .available(let version, _):
+                updateItem.title = "Update to v\(version)"
+                updateItem.isEnabled = true
+            case .downloading, .installing:
+                updateItem.title = "Updating…"
+                updateItem.isEnabled = false
+            default:
+                updateItem.title = "Check for Updates…"
+                updateItem.isEnabled = true
+            }
         }
     }
 
@@ -159,6 +181,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc private func killHub() {
         state?.killUnityHub()
+    }
+
+    @objc private func checkForUpdatesMenu() {
+        state?.checkForUpdates()
     }
 
     @objc private func quitApp() {

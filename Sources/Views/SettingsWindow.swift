@@ -12,6 +12,83 @@ struct SettingsWindow: View {
 
             ScrollView {
                 VStack(spacing: 16) {
+                    // Update
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Update")
+                            .font(.headline)
+                        HStack {
+                            Text("Current version:")
+                                .bold()
+                                .frame(width: 110, alignment: .leading)
+                            Text(Updater.currentVersion())
+                                .font(.system(.body, design: .monospaced))
+                            Spacer()
+                            Button("Check for Updates") { state.checkForUpdates() }
+                                .disabled(state.updateStatus == .checking || state.updateStatus == .downloading(progress: "") || state.updateStatus == .installing)
+                        }
+                        HStack {
+                            Text("Status:")
+                                .bold()
+                                .frame(width: 110, alignment: .leading)
+                            Group {
+                                switch state.updateStatus {
+                                case .checking:
+                                    HStack(spacing: 4) {
+                                        ProgressView().controlSize(.small)
+                                        Text("Checking…")
+                                    }
+                                case .available(let version, _):
+                                    HStack(spacing: 4) {
+                                        Image(systemName: "arrow.down.circle.fill")
+                                            .foregroundColor(.blue)
+                                        Text("v\(version) available")
+                                            .foregroundColor(.blue)
+                                        Button("Update now") {
+                                            if case .available(let v, let url) = state.updateStatus {
+                                                state.downloadAndInstallUpdate(version: v, url: url)
+                                            }
+                                        }
+                                        .controlSize(.small)
+                                        .buttonStyle(.borderedProminent)
+                                    }
+                                case .downloading:
+                                    HStack(spacing: 4) {
+                                        ProgressView().controlSize(.small)
+                                        Text("Downloading…")
+                                    }
+                                case .installing:
+                                    HStack(spacing: 4) {
+                                        ProgressView().controlSize(.small)
+                                        Text("Installing… restart soon")
+                                    }
+                                case .upToDate:
+                                    HStack(spacing: 4) {
+                                        Image(systemName: "checkmark.circle.fill")
+                                            .foregroundColor(.green)
+                                        Text("Up to date")
+                                            .foregroundColor(.secondary)
+                                    }
+                                case .error(let msg):
+                                    HStack(spacing: 4) {
+                                        Image(systemName: "exclamationmark.triangle.fill")
+                                            .foregroundColor(.orange)
+                                        Text("Check failed: \(msg)")
+                                            .foregroundColor(.orange)
+                                            .lineLimit(2)
+                                    }
+                                default:
+                                    Text("—")
+                                        .foregroundColor(.secondary)
+                                }
+                            }
+                            .font(.caption)
+                            Spacer()
+                        }
+                    }
+                    .padding(12)
+                    .background(Color(NSColor.controlBackgroundColor))
+                    .cornerRadius(8)
+
                     // Base Config
                     VStack(alignment: .leading, spacing: 8) {
                         Text("Base Config")
