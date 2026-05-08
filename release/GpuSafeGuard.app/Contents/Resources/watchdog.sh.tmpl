@@ -11,7 +11,7 @@ STATE_FILE="$BASE_DIR/watchdog.state"
 POLL_SECONDS=3
 SAMPLE_SECONDS=1
 REPEAT_THRESHOLD=3
-STAGNANT_THRESHOLD=5
+STAGNANT_THRESHOLD=10
 KILL_GRACE_SECONDS=5
 PLAYMODE_FLAG="$HOME/Library/Application Support/MacGPUSafeGuard/in_playmode"
 
@@ -235,6 +235,28 @@ monitor_loop() {
         reason="render stack frozen for $((REPEAT_COUNT * POLL_SECONDS))s with ShadowCache/Metal issue"
       fi
       snapshot_and_kill "$pid" "$reason" "$tmp_sample"
+      rm -f "$tmp_sample"
+      LAST_PID=""
+      LAST_SIG_B64=""
+      REPEAT_COUNT=0
+      STAGNANT_COUNT=0
+      LAST_LOG_SIG="unknown"
+      LAST_CPU_TIME=""
+      write_state
+      sleep "$POLL_SECONDS"
+      continue
+    fi
+
+    # Play Mode editor-log stagnant kill (covers logic dead-loops that don't freeze render stack)
+    if [ "$STAGNANT_COUNT" -ge "$STAGNANT_THRESHOLD" ]; then
+      if [ ! -f "$PLAYMODE_FLAG" ]; then
+        log "edit mode detected, skip stagnant kill (log stagnant for $((STAGNANT_COUNT * POLL_SECONDS))s)"
+        STAGNANT_COUNT=0
+        rm -f "$tmp_sample"
+        sleep "$POLL_SECONDS"
+        continue
+      fi
+      snapshot_and_kill "$pid" "editor log stagnant for $((STAGNANT_COUNT * POLL_SECONDS))s in play mode" "$tmp_sample"
       rm -f "$tmp_sample"
       LAST_PID=""
       LAST_SIG_B64=""
