@@ -34,6 +34,9 @@ Mac 上 Unity Editor 的 GPU 冻结防护工具。
 
 ## 更新历史
 
+### v1.3.6
+- Updater 从 macOS keychain 读取 GitHub token，API 请求带认证 header，解决 rate limit 导致的 "Cannot parse release info"
+
 ### v1.3.5
 - 移除 Capture 功能，C# 模板完全由 App bundle 自带，直接从 `Contents/Resources/templates/` 读取
 - Settings 中不再显示 Capture 按钮，新用户下载后即可直接 Apply

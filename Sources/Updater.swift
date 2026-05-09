@@ -27,11 +27,32 @@ enum Updater {
         Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "1.0"
     }
 
+    private static func githubToken() -> String? {
+        let task = Process()
+        task.executableURL = URL(fileURLWithPath: "/usr/bin/security")
+        task.arguments = ["find-internet-password", "-s", "github.com", "-w"]
+        let pipe = Pipe()
+        task.standardOutput = pipe
+        task.standardError = Pipe()
+        try? task.run()
+        task.waitUntilExit()
+        let data = pipe.fileHandleForReading.readDataToEndOfFile()
+        return String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
     static func check() async -> UpdateResult {
         let apiURL = "https://api.github.com/repos/\(repo)/releases/latest"
-        let (output, err) = shell("curl", "-sL", "-H", "Accept: application/vnd.github+json", apiURL)
+        var curlArgs = ["curl", "-sL", "-H", "Accept: application/vnd.github+json"]
+        if let token = githubToken(), !token.isEmpty {
+            curlArgs += ["-H", "Authorization: token \(token)"]
+        }
+        curlArgs.append(apiURL)
+        let (output, err) = shell(curlArgs)
         guard err == nil || err!.isEmpty else {
             return UpdateResult(hasUpdate: false, currentVersion: currentVersion(), latestVersion: "", downloadURL: nil, error: "API error: \(err!)")
+        }
+        if let msg = extractMessage(from: output), msg.lowercased().contains("rate limit") {
+            return UpdateResult(hasUpdate: false, currentVersion: currentVersion(), latestVersion: "", downloadURL: nil, error: "GitHub API rate limit exceeded. Retry later.")
         }
         guard let tag = extractTag(from: output) else {
             return UpdateResult(hasUpdate: false, currentVersion: currentVersion(), latestVersion: "", downloadURL: nil, error: "Cannot parse release info")
@@ -57,14 +78,14 @@ enum Updater {
         let zipPath = updatesDir.appendingPathComponent("GpuSafeGuard_\(version).zip").path
         let extractDir = updatesDir.appendingPathComponent("GpuSafeGuard_\(version)").path
 
-        let (_, err) = shell("curl", "-sL", "-o", zipPath, url)
+        let (_, err) = shell(["curl", "-sL", "-o", zipPath, url])
         guard err == nil || err!.isEmpty else { return "Download failed: \(err!)" }
 
         let fm = FileManager.default
         try? fm.removeItem(atPath: extractDir)
         try? fm.createDirectory(atPath: extractDir, withIntermediateDirectories: true)
 
-        let (_, unzipErr) = shell("unzip", "-o", "-q", zipPath, "-d", extractDir)
+        let (_, unzipErr) = shell(["unzip", "-o", "-q", zipPath, "-d", extractDir])
         guard unzipErr == nil || unzipErr!.isEmpty else { return "Unzip failed: \(unzipErr!)" }
 
         return nil
@@ -143,6 +164,15 @@ enum Updater {
         return tag
     }
 
+    private static func extractMessage(from json: String) -> String? {
+        guard let data = json.data(using: .utf8),
+              let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let msg = obj["message"] as? String else {
+            return nil
+        }
+        return msg
+    }
+
     private static func extractDownloadURL(from json: String, assetName: String) -> String? {
         guard let data = json.data(using: .utf8),
               let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
@@ -169,7 +199,7 @@ enum Updater {
         return false
     }
 
-    private static func shell(_ args: String...) -> (String, String?) {
+    private static func shell(_ args: [String]) -> (String, String?) {
         let task = Process()
         task.executableURL = URL(fileURLWithPath: "/usr/bin/env")
         task.arguments = args
