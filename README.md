@@ -34,6 +34,17 @@ Mac 上 Unity Editor 的 GPU 冻结防护工具。
 
 ## 更新历史
 
+### v1.3.1
+- P4 用户自动检测：App 读取 `~/.p4tickets` 根据 P4 Port 自动匹配正确用户名
+- GUI 环境兜底：补全 `HOME`/`PATH`/`USER`/`LOGNAME`，确保 p4 子进程能找到 ticket 文件
+- Settings 新增 P4 User 输入框（留空自动检测，填写则手动覆盖）
+- P4 连通性检查优化：`p4 info` 为门槛，`p4 set` 失败不再阻塞
+
+### v1.3.0
+- Settings 新增 P4 Port / P4 Client 输入框，默认空，不再依赖系统环境变量
+- Watchdog 开启前检测 P4 连通性，P4 配置存在但不可达时禁止开启
+- 覆盖 C# 死循环类卡顿（v1.2.9 心跳检测）
+
 ### v1.2.9
 - C# 心跳检测：Unity Play Mode 下每 3s 向外部写心跳，watchdog 10s 无心跳自动杀（shader 编译时自动放宽到 20s）
 - 覆盖 C# 死循环类卡顿：原有 render-stack 检测覆盖 GPU 渲染冻结，心跳检测覆盖逻辑死循环
