@@ -34,6 +34,11 @@ Mac 上 Unity Editor 的 GPU 冻结防护工具。
 
 ## 更新历史
 
+### v1.3.2
+- Play Mode 标志可靠性修复：C# 心跳线程每次循环刷新 `in_playmode` 标志，watchdog 按文件修改时间（10s 内）判断，避免 domain reload 导致回调丢失而误判为 Edit Mode
+- Watchdog 日志区域默认自动滚动到底部，新增 Clear 按钮（仅清空 UI 显示）
+- C# heartbeat stale kill 不再依赖 playmode 标志，心跳停即杀
+
 ### v1.3.1
 - P4 用户自动检测：App 读取 `~/.p4tickets` 根据 P4 Port 自动匹配正确用户名
 - GUI 环境兜底：补全 `HOME`/`PATH`/`USER`/`LOGNAME`，确保 p4 子进程能找到 ticket 文件

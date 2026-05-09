@@ -80,13 +80,29 @@ struct WatchdogTab: View {
                     .textSelection(.enabled)
             }
 
-            Text("Recent log").font(.headline)
-            ScrollView {
-                Text(state.watchdogLogTail.isEmpty ? "(empty)" : state.watchdogLogTail)
-                    .font(.system(.caption, design: .monospaced))
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(8)
-                    .textSelection(.enabled)
+            HStack {
+                Text("Recent log").font(.headline)
+                Spacer()
+                Button("Clear") { state.watchdogLogTail = "" }
+                    .controlSize(.small)
+            }
+            ScrollViewReader { proxy in
+                ScrollView {
+                    Text(state.watchdogLogTail.isEmpty ? "(empty)" : state.watchdogLogTail)
+                        .id("logBottom")
+                        .font(.system(.caption, design: .monospaced))
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(8)
+                        .textSelection(.enabled)
+                }
+                .onChange(of: state.watchdogLogTail) {
+                    withAnimation {
+                        proxy.scrollTo("logBottom", anchor: .bottom)
+                    }
+                }
+                .onAppear {
+                    proxy.scrollTo("logBottom", anchor: .bottom)
+                }
             }
             .background(Color(NSColor.textBackgroundColor))
             .cornerRadius(6)
