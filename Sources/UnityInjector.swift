@@ -23,16 +23,22 @@ struct UnityInjector {
         ),
     ]
 
+    private static func bundledTemplateURL(for basename: String) -> URL? {
+        Bundle.main.resourceURL?.appendingPathComponent("templates", isDirectory: true)
+            .appendingPathComponent(basename)
+    }
+
     func check() -> [InjectorTarget] {
         guard !unityProjectPath.isEmpty else { return Self.targetSpecs }
         let projectURL = URL(fileURLWithPath: unityProjectPath)
         return Self.targetSpecs.map { spec in
             var t = spec
-            let templateURL = AppPaths.templatesDir.appendingPathComponent(spec.basename)
-            let targetURL = projectURL.appendingPathComponent(spec.relativePath)
-            if !FileManager.default.fileExists(atPath: templateURL.path) {
+            guard let templateURL = Self.bundledTemplateURL(for: spec.basename) else {
                 t.status = .templateMissing
-            } else if !FileManager.default.fileExists(atPath: targetURL.path) {
+                return t
+            }
+            let targetURL = projectURL.appendingPathComponent(spec.relativePath)
+            if !FileManager.default.fileExists(atPath: targetURL.path) {
                 t.status = .missing
             } else {
                 let a = Self.sha256(of: templateURL)
@@ -47,23 +53,6 @@ struct UnityInjector {
         }
     }
 
-    func captureTemplates() throws {
-        guard !unityProjectPath.isEmpty else {
-            throw NSError(domain: "Injector", code: 1, userInfo: [NSLocalizedDescriptionKey: "Unity project path not set"])
-        }
-        let projectURL = URL(fileURLWithPath: unityProjectPath)
-        try FileManager.default.createDirectory(at: AppPaths.templatesDir, withIntermediateDirectories: true)
-        for spec in Self.targetSpecs {
-            let src = projectURL.appendingPathComponent(spec.relativePath)
-            let dst = AppPaths.templatesDir.appendingPathComponent(spec.basename)
-            guard FileManager.default.fileExists(atPath: src.path) else { continue }
-            if FileManager.default.fileExists(atPath: dst.path) {
-                try FileManager.default.removeItem(at: dst)
-            }
-            try FileManager.default.copyItem(at: src, to: dst)
-        }
-    }
-
     func apply(changelist: String) -> [InjectorResult] {
         guard !unityProjectPath.isEmpty else {
             return [InjectorResult(basename: "(all)", action: "ERROR: Unity project path not set", ok: false)]
@@ -71,13 +60,16 @@ struct UnityInjector {
         let projectURL = URL(fileURLWithPath: unityProjectPath)
         var results: [InjectorResult] = []
         for t in check() {
-            let templateURL = AppPaths.templatesDir.appendingPathComponent(t.basename)
+            guard let templateURL = Self.bundledTemplateURL(for: t.basename) else {
+                results.append(InjectorResult(basename: t.basename, action: "ERROR: bundled template not found", ok: false))
+                continue
+            }
             let targetURL = projectURL.appendingPathComponent(t.relativePath)
             switch t.status {
             case .inSync:
                 results.append(InjectorResult(basename: t.basename, action: "skipped (in sync)", ok: true))
             case .templateMissing:
-                results.append(InjectorResult(basename: t.basename, action: "ERROR: template not captured; press Capture first", ok: false))
+                results.append(InjectorResult(basename: t.basename, action: "ERROR: bundled template not found", ok: false))
             case .missing:
                 do {
                     try FileManager.default.createDirectory(
@@ -114,21 +106,6 @@ struct UnityInjector {
             }
         }
         return results
-    }
-
-    static func seedDefaultTemplates() {
-        let fm = FileManager.default
-        let files = try? fm.contentsOfDirectory(atPath: AppPaths.templatesDir.path)
-        if let files, !files.isEmpty { return }
-        guard let bundleTemplates = Bundle.main.resourceURL?.appendingPathComponent("templates", isDirectory: true) else { return }
-        guard fm.fileExists(atPath: bundleTemplates.path) else { return }
-        try? fm.createDirectory(at: AppPaths.templatesDir, withIntermediateDirectories: true)
-        for spec in targetSpecs {
-            let src = bundleTemplates.appendingPathComponent(spec.basename)
-            let dst = AppPaths.templatesDir.appendingPathComponent(spec.basename)
-            guard fm.fileExists(atPath: src.path) else { continue }
-            try? fm.copyItem(at: src, to: dst)
-        }
     }
 
     private static func sha256(of url: URL) -> String? {

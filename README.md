@@ -34,8 +34,12 @@ Mac 上 Unity Editor 的 GPU 冻结防护工具。
 
 ## 更新历史
 
+### v1.3.5
+- 移除 Capture 功能，C# 模板完全由 App bundle 自带，直接从 `Contents/Resources/templates/` 读取
+- Settings 中不再显示 Capture 按钮，新用户下载后即可直接 Apply
+
 ### v1.3.4
-- App 自带默认 C# 模板（MacGPUSafeGuard.cs / MacGPUConfig.cs / SetURPSettings.cs），首次启动自动 seed，新用户无需先 Capture 即可直接 Apply
+- App 自带默认 C# 模板，首次启动自动 seed
 - 手动 kill 的 sample 采样时间从 3 秒延长到 5 秒
 
 ### v1.3.2
