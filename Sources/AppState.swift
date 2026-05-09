@@ -8,6 +8,9 @@ enum BusyKind: String, Hashable, Sendable {
 @MainActor
 final class AppState: ObservableObject {
     @Published var p4Binary: String { didSet { UserDefaults.standard.set(p4Binary, forKey: DefaultsKey.p4Binary) } }
+    @Published var p4Port: String { didSet { UserDefaults.standard.set(p4Port, forKey: DefaultsKey.p4Port) } }
+    @Published var p4Client: String { didSet { UserDefaults.standard.set(p4Client, forKey: DefaultsKey.p4Client) } }
+    @Published var p4User: String { didSet { UserDefaults.standard.set(p4User, forKey: DefaultsKey.p4User) } }
     @Published var unityProjectPath: String { didSet { UserDefaults.standard.set(unityProjectPath, forKey: DefaultsKey.unityProjectPath) } }
     @Published var unityEditorBinary: String { didSet { UserDefaults.standard.set(unityEditorBinary, forKey: DefaultsKey.unityEditorBinary) } }
     @Published var defaultChangelist: String { didSet { UserDefaults.standard.set(defaultChangelist, forKey: DefaultsKey.defaultChangelist) } }
@@ -47,20 +50,27 @@ final class AppState: ObservableObject {
         let d = UserDefaults.standard
         d.register(defaults: [
             DefaultsKey.p4Binary: "",
+            DefaultsKey.p4Port: "",
+            DefaultsKey.p4Client: "",
+            DefaultsKey.p4User: "",
             DefaultsKey.unityProjectPath: "",
             DefaultsKey.unityEditorBinary: "",
             DefaultsKey.defaultChangelist: "",
         ])
         self.p4Binary = d.string(forKey: DefaultsKey.p4Binary) ?? ""
+        self.p4Port = d.string(forKey: DefaultsKey.p4Port) ?? ""
+        self.p4Client = d.string(forKey: DefaultsKey.p4Client) ?? ""
+        self.p4User = d.string(forKey: DefaultsKey.p4User) ?? ""
         self.unityProjectPath = d.string(forKey: DefaultsKey.unityProjectPath) ?? ""
         self.unityEditorBinary = d.string(forKey: DefaultsKey.unityEditorBinary) ?? ""
         self.defaultChangelist = d.string(forKey: DefaultsKey.defaultChangelist) ?? ""
+        UnityInjector.seedDefaultTemplates()
         startBackgroundRefresh()
         checkForUpdates()
     }
 
     func makeP4() -> P4Manager {
-        P4Manager(p4Binary: p4Binary, cwd: unityProjectPath.isEmpty ? nil : unityProjectPath)
+        P4Manager(p4Binary: p4Binary, p4Port: p4Port, p4Client: p4Client, p4User: p4User, cwd: unityProjectPath.isEmpty ? nil : unityProjectPath)
     }
 
     func makeInjector() -> UnityInjector {
@@ -73,6 +83,14 @@ final class AppState: ObservableObject {
         guard !unityProjectPath.isEmpty, !unityEditorBinary.isEmpty else {
             watchdogLastError = "Unity project path or Unity editor binary not set"
             return
+        }
+        if !p4Port.isEmpty || !p4Client.isEmpty {
+            let p4 = makeP4()
+            let (_, p4Err) = p4.readEnv()
+            if let p4Err {
+                watchdogLastError = "P4 connection check failed: \(p4Err)"
+                return
+            }
         }
         busy.insert(.watchdog)
         let projectPath = unityProjectPath

@@ -55,7 +55,7 @@ save_snapshot() {
     fi
 
     local sample_file="${dir}/sample.txt"
-    sample "$pid" 3 -file "$sample_file" >/dev/null 2>&1 || true
+    sample "$pid" 5 -file "$sample_file" >/dev/null 2>&1 || true
 
     {
         echo "timestamp=$(date '+%Y-%m-%d %H:%M:%S')"

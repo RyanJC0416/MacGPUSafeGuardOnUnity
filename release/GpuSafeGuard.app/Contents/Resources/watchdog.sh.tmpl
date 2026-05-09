@@ -109,6 +109,18 @@ heartbeat_stale_seconds() {
   echo $((now - ts))
 }
 
+# Play-mode flag is refreshed by the C# heartbeat thread every 3s.
+# If the flag file is missing or older than 10s we treat it as inactive.
+is_playmode_active() {
+  [ -f "$PLAYMODE_FLAG" ] || return 1
+  local now; now=$(date +%s)
+  local mtime
+  mtime=$(stat -f '%m' "$PLAYMODE_FLAG" 2>/dev/null || echo "0")
+  if ! [[ "$mtime" =~ ^[0-9]+$ ]]; then return 1; fi
+  local age=$((now - mtime))
+  [ "$age" -le 10 ]
+}
+
 write_state() {
   cat > "$STATE_FILE" <<EOF
 LAST_PID=${LAST_PID:-}
@@ -256,7 +268,7 @@ monitor_loop() {
     write_state
 
     if [ -n "$sig_b64" ] && [ "$REPEAT_COUNT" -ge "$REPEAT_THRESHOLD" ]; then
-      if [ ! -f "$PLAYMODE_FLAG" ]; then
+      if ! is_playmode_active; then
         log "edit mode detected, skip kill (render stack frozen for $((REPEAT_COUNT * POLL_SECONDS))s)"
         REPEAT_COUNT=0
         rm -f "$tmp_sample"
@@ -282,7 +294,7 @@ monitor_loop() {
 
     # Play Mode editor-log stagnant kill (covers logic dead-loops that don't freeze render stack)
     if [ "$STAGNANT_COUNT" -ge "$STAGNANT_THRESHOLD" ]; then
-      if [ ! -f "$PLAYMODE_FLAG" ]; then
+      if ! is_playmode_active; then
         log "edit mode detected, skip stagnant kill (log stagnant for $((STAGNANT_COUNT * POLL_SECONDS))s)"
         STAGNANT_COUNT=0
         rm -f "$tmp_sample"
@@ -303,6 +315,8 @@ monitor_loop() {
     fi
 
     # C# heartbeat dead-loop detection (covers logic dead-loops that don't freeze render stack or log)
+    # NOTE: we do NOT gate this on is_playmode_active. If the heartbeat has gone stale,
+    # the C# thread is dead regardless of what the playmode flag says.
     local hb_stale=-1
     if [ -f "$HEARTBEAT_PATH" ]; then
       hb_stale=$(heartbeat_stale_seconds)
@@ -312,14 +326,6 @@ monitor_loop() {
       hb_threshold=20
     fi
     if [ "$hb_stale" -ge 0 ] && [ "$hb_stale" -ge "$hb_threshold" ]; then
-      if [ ! -f "$PLAYMODE_FLAG" ]; then
-        log "edit mode detected, skip heartbeat kill (stale ${hb_stale}s)"
-        REPEAT_COUNT=0
-        STAGNANT_COUNT=0
-        rm -f "$tmp_sample"
-        sleep "$POLL_SECONDS"
-        continue
-      fi
       snapshot_and_kill "$pid" "C# heartbeat stale for ${hb_stale}s (threshold=${hb_threshold}s)" "$tmp_sample"
       rm -f "$tmp_sample"
       LAST_PID=""

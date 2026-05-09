@@ -34,6 +34,9 @@ Mac 上 Unity Editor 的 GPU 冻结防护工具。
 
 ## 更新历史
 
+### v1.3.3
+- 手动 kill 的 sample 采样时间从 3 秒延长到 5 秒，保存更多卡死瞬间的信息
+
 ### v1.3.2
 - Play Mode 标志可靠性修复：C# 心跳线程每次循环刷新 `in_playmode` 标志，watchdog 按文件修改时间（10s 内）判断，避免 domain reload 导致回调丢失而误判为 Edit Mode
 - Watchdog 日志区域默认自动滚动到底部，新增 Clear 按钮（仅清空 UI 显示）
