@@ -10,7 +10,19 @@
 		</data>
 		<key>Resources/kill-unity.sh</key>
 		<data>
-		OGqLSppZ/2292Y5vWy4GHtyR5rI=
+		9izcHOADV3HOCiuvrUi+94ptSWo=
+		</data>
+		<key>Resources/templates/MacGPUConfig.cs</key>
+		<data>
+		WTPhBTiFvL08OVA44RgIbLOHwno=
+		</data>
+		<key>Resources/templates/MacGPUSafeGuard.cs</key>
+		<data>
+		1/fPR9bLNAJqxfsr+AfzMEOKhJ0=
+		</data>
+		<key>Resources/templates/SetURPSettings.cs</key>
+		<data>
+		XrLkT1jH0tFuxi5K5dvldhtdGIQ=
 		</data>
 		<key>Resources/watchdog.sh.tmpl</key>
 		<data>
@@ -30,7 +42,28 @@
 		<dict>
 			<key>hash2</key>
 			<data>
-			7s3esslPzxQXkWPm430wa0LQiJDCXYJnYwYTFHzZ3ZY=
+			/NXqdPwI357ypmSCX1CitD/+VLKz2aWnPIw9iAs04eA=
+			</data>
+		</dict>
+		<key>Resources/templates/MacGPUConfig.cs</key>
+		<dict>
+			<key>hash2</key>
+			<data>
+			2emvj9ugLQBqvib/9HbnldEKcRBF6QSOyoBpmfawIl8=
+			</data>
+		</dict>
+		<key>Resources/templates/MacGPUSafeGuard.cs</key>
+		<dict>
+			<key>hash2</key>
+			<data>
+			Y/ZXIXQNe4PRaz+U0YswSD+jTswQHZSiryLFg62GhCQ=
+			</data>
+		</dict>
+		<key>Resources/templates/SetURPSettings.cs</key>
+		<dict>
+			<key>hash2</key>
+			<data>
+			laXFDBdQ8Et6JARYA9k00eyCxmm3b26YGSvrXGWsu0E=
 			</data>
 		</dict>
 		<key>Resources/watchdog.sh.tmpl</key>
