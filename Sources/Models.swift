@@ -23,6 +23,9 @@ enum AppPaths {
 
 enum DefaultsKey {
     static let p4Binary = "gsg.p4Binary"
+    static let p4Port = "gsg.p4Port"
+    static let p4Client = "gsg.p4Client"
+    static let p4User = "gsg.p4User"
     static let unityProjectPath = "gsg.unityProjectPath"
     static let unityEditorBinary = "gsg.unityEditorBinary"
     static let defaultChangelist = "gsg.defaultChangelist"

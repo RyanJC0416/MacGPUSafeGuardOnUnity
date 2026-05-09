@@ -116,6 +116,21 @@ struct UnityInjector {
         return results
     }
 
+    static func seedDefaultTemplates() {
+        let fm = FileManager.default
+        let files = try? fm.contentsOfDirectory(atPath: AppPaths.templatesDir.path)
+        if let files, !files.isEmpty { return }
+        guard let bundleTemplates = Bundle.main.resourceURL?.appendingPathComponent("templates", isDirectory: true) else { return }
+        guard fm.fileExists(atPath: bundleTemplates.path) else { return }
+        try? fm.createDirectory(at: AppPaths.templatesDir, withIntermediateDirectories: true)
+        for spec in targetSpecs {
+            let src = bundleTemplates.appendingPathComponent(spec.basename)
+            let dst = AppPaths.templatesDir.appendingPathComponent(spec.basename)
+            guard fm.fileExists(atPath: src.path) else { continue }
+            try? fm.copyItem(at: src, to: dst)
+        }
+    }
+
     private static func sha256(of url: URL) -> String? {
         guard let data = try? Data(contentsOf: url) else { return nil }
         return SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
