@@ -64,7 +64,6 @@ final class AppState: ObservableObject {
         self.unityProjectPath = d.string(forKey: DefaultsKey.unityProjectPath) ?? ""
         self.unityEditorBinary = d.string(forKey: DefaultsKey.unityEditorBinary) ?? ""
         self.defaultChangelist = d.string(forKey: DefaultsKey.defaultChangelist) ?? ""
-        UnityInjector.seedDefaultTemplates()
         startBackgroundRefresh()
         checkForUpdates()
     }
@@ -233,32 +232,6 @@ final class AppState: ObservableObject {
         Task.detached(priority: .userInitiated) {
             let targets = inj.check()
             await MainActor.run {
-                self.injectorTargets = targets
-                self.busy.remove(.injector)
-            }
-        }
-    }
-
-    func captureTemplates() {
-        guard !busy.contains(.injector) else { return }
-        busy.insert(.injector)
-        let inj = makeInjector()
-        Task.detached(priority: .userInitiated) {
-            let captureErr: String? = {
-                do {
-                    try inj.captureTemplates()
-                    return nil
-                } catch {
-                    return error.localizedDescription
-                }
-            }()
-            let targets = inj.check()
-            await MainActor.run {
-                if let captureErr {
-                    self.lastApplyResults = [
-                        InjectorResult(basename: "(capture)", action: "ERROR: \(captureErr)", ok: false)
-                    ]
-                }
                 self.injectorTargets = targets
                 self.busy.remove(.injector)
             }

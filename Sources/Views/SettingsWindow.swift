@@ -94,6 +94,27 @@ struct SettingsWindow: View {
                         Text("Base Config")
                             .font(.headline)
                         PathRow(label: "P4 binary", path: $state.p4Binary, kind: .file)
+                        HStack {
+                            Text("P4 Port")
+                                .frame(width: 110, alignment: .leading)
+                            TextField("e.g. ssl:perforce.company.com:1666", text: $state.p4Port)
+                                .font(.system(.body, design: .monospaced))
+                                .textFieldStyle(.roundedBorder)
+                        }
+                        HStack {
+                            Text("P4 Client")
+                                .frame(width: 110, alignment: .leading)
+                            TextField("e.g. WorkSpace_Ryan_Mac", text: $state.p4Client)
+                                .font(.system(.body, design: .monospaced))
+                                .textFieldStyle(.roundedBorder)
+                        }
+                        HStack {
+                            Text("P4 User")
+                                .frame(width: 110, alignment: .leading)
+                            TextField("auto-detect from ~/.p4tickets", text: $state.p4User)
+                                .font(.system(.body, design: .monospaced))
+                                .textFieldStyle(.roundedBorder)
+                        }
                         PathRow(label: "Unity project", path: $state.unityProjectPath, kind: .directory)
                     }
                     .padding(12)
@@ -146,13 +167,7 @@ struct SettingsWindow: View {
 
                         Divider()
 
-                        HStack {
-                            Text("Templates").bold()
-                            Spacer()
-                            Button("Capture / Re-capture from project") {
-                                state.captureTemplates()
-                            }
-                        }
+                        Text("Bundled Templates").font(.headline)
 
                         VStack(alignment: .leading, spacing: 4) {
                             ForEach(state.injectorTargets) { t in
@@ -248,17 +263,13 @@ struct SettingsWindow: View {
     private func canApply() -> Bool {
         guard !state.unityProjectPath.isEmpty else { return false }
         guard !state.defaultChangelist.isEmpty else { return false }
-        let templatesOK = state.injectorTargets.allSatisfy { $0.status != .templateMissing }
         let needsAction = state.injectorTargets.contains { $0.status == .drift || $0.status == .missing }
-        return templatesOK && needsAction
+        return needsAction
     }
 
     private func applyDisabledReason() -> String {
         if state.unityProjectPath.isEmpty { return "set Unity project path first" }
         if state.defaultChangelist.isEmpty { return "select a default CL first" }
-        if state.injectorTargets.contains(where: { $0.status == .templateMissing }) {
-            return "press Capture first"
-        }
         if !state.injectorTargets.contains(where: { $0.status == .drift || $0.status == .missing }) {
             return "all in sync — nothing to apply"
         }
