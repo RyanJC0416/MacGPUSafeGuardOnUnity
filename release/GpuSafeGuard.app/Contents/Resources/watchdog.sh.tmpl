@@ -129,6 +129,7 @@ REPEAT_COUNT=${REPEAT_COUNT:-0}
 STAGNANT_COUNT=${STAGNANT_COUNT:-0}
 LAST_LOG_SIG=${LAST_LOG_SIG:-unknown}
 LAST_CPU_TIME=${LAST_CPU_TIME:-}
+EDIT_SKIP_LOGGED=${EDIT_SKIP_LOGGED:-0}
 EOF
 }
 
@@ -139,6 +140,7 @@ load_state() {
   STAGNANT_COUNT=0
   LAST_LOG_SIG="unknown"
   LAST_CPU_TIME=""
+  EDIT_SKIP_LOGGED=0
   if [ -f "$STATE_FILE" ]; then
     # shellcheck disable=SC1090
     source "$STATE_FILE"
@@ -222,9 +224,16 @@ monitor_loop() {
       REPEAT_COUNT=0
       STAGNANT_COUNT=0
       LAST_LOG_SIG="unknown"
+      EDIT_SKIP_LOGGED=0
       write_state
       sleep "$POLL_SECONDS"
       continue
+    fi
+
+    # Reset skip-log flag when playmode becomes active again
+    if [ "${EDIT_SKIP_LOGGED:-0}" = "1" ] && is_playmode_active; then
+      EDIT_SKIP_LOGGED=0
+      write_state
     fi
 
     local current_log_sig
@@ -269,7 +278,11 @@ monitor_loop() {
 
     if [ -n "$sig_b64" ] && [ "$REPEAT_COUNT" -ge "$REPEAT_THRESHOLD" ]; then
       if ! is_playmode_active; then
-        log "edit mode detected, skip kill (render stack frozen for $((REPEAT_COUNT * POLL_SECONDS))s)"
+        if [ "${EDIT_SKIP_LOGGED:-0}" != "1" ]; then
+          log "edit mode detected, skip kill (render stack frozen for $((REPEAT_COUNT * POLL_SECONDS))s)"
+          EDIT_SKIP_LOGGED=1
+          write_state
+        fi
         REPEAT_COUNT=0
         rm -f "$tmp_sample"
         sleep "$POLL_SECONDS"
@@ -295,7 +308,11 @@ monitor_loop() {
     # Play Mode editor-log stagnant kill (covers logic dead-loops that don't freeze render stack)
     if [ "$STAGNANT_COUNT" -ge "$STAGNANT_THRESHOLD" ]; then
       if ! is_playmode_active; then
-        log "edit mode detected, skip stagnant kill (log stagnant for $((STAGNANT_COUNT * POLL_SECONDS))s)"
+        if [ "${EDIT_SKIP_LOGGED:-0}" != "1" ]; then
+          log "edit mode detected, skip stagnant kill (log stagnant for $((STAGNANT_COUNT * POLL_SECONDS))s)"
+          EDIT_SKIP_LOGGED=1
+          write_state
+        fi
         STAGNANT_COUNT=0
         rm -f "$tmp_sample"
         sleep "$POLL_SECONDS"
