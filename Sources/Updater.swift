@@ -26,6 +26,11 @@ enum Updater {
     static func currentVersion() -> String {
         Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "1.0"
     }
+    
+    static func isAppTranslocated() -> Bool {
+        guard let appPath = Bundle.main.bundleURL.path as String? else { return false }
+        return appPath.contains("/AppTranslocation/") || (appPath.contains("/private/var/folders/") && appPath.contains("/T/"))
+    }
 
     private static func githubToken() -> String? {
         let task = Process()
@@ -95,6 +100,21 @@ enum Updater {
         guard let appPath = Bundle.main.bundleURL.path as String? else {
             return "Cannot locate current app bundle"
         }
+        
+        // Detect App Translocation (macOS quarantine mechanism)
+        if appPath.contains("/AppTranslocation/") || appPath.contains("/private/var/folders/") && appPath.contains("/T/") {
+            return """
+            Cannot update: App is running from a quarantined location.
+            
+            To fix:
+            1. Move GpuSafeGuard.app to /Applications/
+            2. Restart the app from /Applications/
+            3. Try updating again
+            
+            This is a macOS security feature (App Translocation) that prevents updates from temporary locations.
+            """
+        }
+        
         let appDir = (appPath as NSString).deletingLastPathComponent
         let updatesDir = FileManager.default.homeDirectoryForCurrentUser
             .appendingPathComponent("Library/Application Support/MacGPUSafeGuard/updates")

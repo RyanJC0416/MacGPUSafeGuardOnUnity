@@ -16,6 +16,27 @@ struct SettingsWindow: View {
                     VStack(alignment: .leading, spacing: 8) {
                         Text("Update")
                             .font(.headline)
+                        
+                        // App Translocation Warning
+                        if Updater.isAppTranslocated() {
+                            HStack(alignment: .top, spacing: 8) {
+                                Image(systemName: "exclamationmark.triangle.fill")
+                                    .foregroundColor(.orange)
+                                VStack(alignment: .leading, spacing: 4) {
+                                    Text("App is in quarantined location")
+                                        .font(.caption)
+                                        .bold()
+                                        .foregroundColor(.orange)
+                                    Text("Updates are disabled. Please move GpuSafeGuard.app to /Applications/ and restart.")
+                                        .font(.caption2)
+                                        .foregroundColor(.secondary)
+                                }
+                            }
+                            .padding(8)
+                            .background(Color.orange.opacity(0.1))
+                            .cornerRadius(6)
+                        }
+                        
                         HStack {
                             Text("Current version:")
                                 .bold()
@@ -24,7 +45,7 @@ struct SettingsWindow: View {
                                 .font(.system(.body, design: .monospaced))
                             Spacer()
                             Button("Check for Updates") { state.checkForUpdates() }
-                                .disabled(state.updateStatus == .checking || state.updateStatus == .downloading(progress: "") || state.updateStatus == .installing)
+                                .disabled(state.updateStatus == .checking || state.updateStatus == .downloading(progress: "") || state.updateStatus == .installing || Updater.isAppTranslocated())
                         }
                         HStack {
                             Text("Status:")

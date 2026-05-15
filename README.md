@@ -35,11 +35,16 @@ cd mac-gpu-safeguard
 # 构建 macOS App
 bash build.sh
 
+# ⚠️ 重要：将 App 移动到 /Applications/ 以启用自动更新
+cp -R GpuSafeGuard.app /Applications/
+
 # 或手动编译
 swiftc -o GpuSafeGuard.app/Contents/MacOS/GpuSafeGuard \
     Sources/*.swift \
     -framework Cocoa
 ```
+
+> **注意**: 由于 macOS App Translocation 机制，从其他位置运行的 App 无法自动更新。请确保将 `GpuSafeGuard.app` 移动到 `/Applications/` 目录后再使用。
 
 ### 使用 Watchdog 自动监控
 

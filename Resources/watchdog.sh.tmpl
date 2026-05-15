@@ -212,6 +212,14 @@ snapshot_and_kill() {
 }
 
 monitor_loop() {
+  # Cleanup function for temporary files
+  cleanup_temps() {
+    # Clean up any sample_check files from current or previous runs
+    find "$BASE_DIR" -maxdepth 1 -name "sample_check_*.txt" -type f -mmin +10 -delete 2>/dev/null || true
+  }
+  
+  trap cleanup_temps EXIT
+
   load_state
   log "watchdog loop started; project=$PROJECT_PATH poll=${POLL_SECONDS}s"
 
@@ -246,7 +254,7 @@ monitor_loop() {
     fi
 
     local tmp_sample
-    tmp_sample=$(mktemp "$BASE_DIR/sample_check.XXXXXX.txt")
+    tmp_sample=$(mktemp "$BASE_DIR/sample_check_XXXXXX.txt")
     sample "$pid" "$SAMPLE_SECONDS" 1 > "$tmp_sample" 2>&1 || true
 
     local sig

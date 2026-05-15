@@ -90,6 +90,7 @@ struct MainWindow: View {
                 }
                 .controlSize(.small)
                 .buttonStyle(.borderedProminent)
+                .disabled(Updater.isAppTranslocated())
             }
         case .downloading:
             HStack(spacing: 4) {
