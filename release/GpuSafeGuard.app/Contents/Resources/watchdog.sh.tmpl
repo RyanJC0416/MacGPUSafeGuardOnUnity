@@ -14,8 +14,6 @@ REPEAT_THRESHOLD=3
 STAGNANT_THRESHOLD=5
 KILL_GRACE_SECONDS=5
 PLAYMODE_FLAG="$HOME/Library/Application Support/MacGPUSafeGuard/in_playmode"
-HEARTBEAT_PATH="$HOME/Library/Application Support/MacGPUSafeGuard/heartbeat"
-COMPILING_PATH="$HOME/Library/Application Support/MacGPUSafeGuard/compiling"
 
 # canonicalize project path so command-line filter survives symlinks/trailing slashes
 if command -v realpath >/dev/null 2>&1 && [ -e "$PROJECT_PATH" ]; then
@@ -93,34 +91,6 @@ cpu_time_of() {
   ps -p "$1" -o time= 2>/dev/null | tr -d ' ' || echo ''
 }
 
-heartbeat_stale_seconds() {
-  local now
-  now=$(date +%s)
-  if [ ! -f "$HEARTBEAT_PATH" ]; then
-    echo "999"
-    return
-  fi
-  local ts
-  ts=$(cat "$HEARTBEAT_PATH" 2>/dev/null || echo "0")
-  if ! [[ "$ts" =~ ^[0-9]+$ ]]; then
-    echo "999"
-    return
-  fi
-  echo $((now - ts))
-}
-
-# Play-mode flag is refreshed by the C# heartbeat thread every 3s.
-# If the flag file is missing or older than 10s we treat it as inactive.
-is_playmode_active() {
-  [ -f "$PLAYMODE_FLAG" ] || return 1
-  local now; now=$(date +%s)
-  local mtime
-  mtime=$(stat -f '%m' "$PLAYMODE_FLAG" 2>/dev/null || echo "0")
-  if ! [[ "$mtime" =~ ^[0-9]+$ ]]; then return 1; fi
-  local age=$((now - mtime))
-  [ "$age" -le 10 ]
-}
-
 write_state() {
   cat > "$STATE_FILE" <<EOF
 LAST_PID=${LAST_PID:-}
@@ -129,7 +99,6 @@ REPEAT_COUNT=${REPEAT_COUNT:-0}
 STAGNANT_COUNT=${STAGNANT_COUNT:-0}
 LAST_LOG_SIG=${LAST_LOG_SIG:-unknown}
 LAST_CPU_TIME=${LAST_CPU_TIME:-}
-EDIT_SKIP_LOGGED=${EDIT_SKIP_LOGGED:-0}
 EOF
 }
 
@@ -140,7 +109,6 @@ load_state() {
   STAGNANT_COUNT=0
   LAST_LOG_SIG="unknown"
   LAST_CPU_TIME=""
-  EDIT_SKIP_LOGGED=0
   if [ -f "$STATE_FILE" ]; then
     # shellcheck disable=SC1090
     source "$STATE_FILE"
@@ -172,21 +140,6 @@ snapshot_and_kill() {
     echo "pid=$pid"
     echo "reason=$reason"
     echo "project=$PROJECT_PATH"
-    echo '--- heartbeat ---'
-    if [ -f "$HEARTBEAT_PATH" ]; then
-      local hb_ts hb_stale
-      hb_ts=$(cat "$HEARTBEAT_PATH" 2>/dev/null || echo "unknown")
-      hb_stale=$(heartbeat_stale_seconds)
-      echo "heartbeat_ts=$hb_ts"
-      echo "heartbeat_stale_seconds=$hb_stale"
-      if [ -f "$COMPILING_PATH" ]; then
-        echo "compiling_flag=true"
-      else
-        echo "compiling_flag=false"
-      fi
-    else
-      echo "heartbeat=missing"
-    fi
     echo '--- ps ---'
     ps -p "$pid" -o pid,ppid,stat,%cpu,etime,command || true
     echo '--- recent MacGPUSafeGuard ---'
@@ -224,16 +177,9 @@ monitor_loop() {
       REPEAT_COUNT=0
       STAGNANT_COUNT=0
       LAST_LOG_SIG="unknown"
-      EDIT_SKIP_LOGGED=0
       write_state
       sleep "$POLL_SECONDS"
       continue
-    fi
-
-    # Reset skip-log flag when playmode becomes active again
-    if [ "${EDIT_SKIP_LOGGED:-0}" = "1" ] && is_playmode_active; then
-      EDIT_SKIP_LOGGED=0
-      write_state
     fi
 
     local current_log_sig
@@ -277,12 +223,8 @@ monitor_loop() {
     write_state
 
     if [ -n "$sig_b64" ] && [ "$REPEAT_COUNT" -ge "$REPEAT_THRESHOLD" ]; then
-      if ! is_playmode_active; then
-        if [ "${EDIT_SKIP_LOGGED:-0}" != "1" ]; then
-          log "edit mode detected, skip kill (render stack frozen for $((REPEAT_COUNT * POLL_SECONDS))s)"
-          EDIT_SKIP_LOGGED=1
-          write_state
-        fi
+      if [ ! -f "$PLAYMODE_FLAG" ]; then
+        log "edit mode detected, skip kill (render stack frozen for $((REPEAT_COUNT * POLL_SECONDS))s)"
         REPEAT_COUNT=0
         rm -f "$tmp_sample"
         sleep "$POLL_SECONDS"
@@ -293,57 +235,6 @@ monitor_loop() {
         reason="render stack frozen for $((REPEAT_COUNT * POLL_SECONDS))s with ShadowCache/Metal issue"
       fi
       snapshot_and_kill "$pid" "$reason" "$tmp_sample"
-      rm -f "$tmp_sample"
-      LAST_PID=""
-      LAST_SIG_B64=""
-      REPEAT_COUNT=0
-      STAGNANT_COUNT=0
-      LAST_LOG_SIG="unknown"
-      LAST_CPU_TIME=""
-      write_state
-      sleep "$POLL_SECONDS"
-      continue
-    fi
-
-    # Play Mode editor-log stagnant kill (covers logic dead-loops that don't freeze render stack)
-    if [ "$STAGNANT_COUNT" -ge "$STAGNANT_THRESHOLD" ]; then
-      if ! is_playmode_active; then
-        if [ "${EDIT_SKIP_LOGGED:-0}" != "1" ]; then
-          log "edit mode detected, skip stagnant kill (log stagnant for $((STAGNANT_COUNT * POLL_SECONDS))s)"
-          EDIT_SKIP_LOGGED=1
-          write_state
-        fi
-        STAGNANT_COUNT=0
-        rm -f "$tmp_sample"
-        sleep "$POLL_SECONDS"
-        continue
-      fi
-      snapshot_and_kill "$pid" "editor log stagnant for $((STAGNANT_COUNT * POLL_SECONDS))s in play mode" "$tmp_sample"
-      rm -f "$tmp_sample"
-      LAST_PID=""
-      LAST_SIG_B64=""
-      REPEAT_COUNT=0
-      STAGNANT_COUNT=0
-      LAST_LOG_SIG="unknown"
-      LAST_CPU_TIME=""
-      write_state
-      sleep "$POLL_SECONDS"
-      continue
-    fi
-
-    # C# heartbeat dead-loop detection (covers logic dead-loops that don't freeze render stack or log)
-    # NOTE: we do NOT gate this on is_playmode_active. If the heartbeat has gone stale,
-    # the C# thread is dead regardless of what the playmode flag says.
-    local hb_stale=-1
-    if [ -f "$HEARTBEAT_PATH" ]; then
-      hb_stale=$(heartbeat_stale_seconds)
-    fi
-    local hb_threshold=10
-    if [ -f "$COMPILING_PATH" ]; then
-      hb_threshold=20
-    fi
-    if [ "$hb_stale" -ge 0 ] && [ "$hb_stale" -ge "$hb_threshold" ]; then
-      snapshot_and_kill "$pid" "C# heartbeat stale for ${hb_stale}s (threshold=${hb_threshold}s)" "$tmp_sample"
       rm -f "$tmp_sample"
       LAST_PID=""
       LAST_SIG_B64=""

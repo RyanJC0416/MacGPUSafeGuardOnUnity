@@ -8,7 +8,11 @@
 #   kill-unity.sh --hub          # kill only Unity Hub
 #   kill-unity.sh --all  | -a    # kill Editor + Hub
 #   kill-unity.sh --list | -l    # list processes only, do not kill
+#   kill-unity.sh --no-snapshot  # skip snapshot, kill immediately
 #   kill-unity.sh --help | -h    # show this help
+#
+# Environment:
+#   SKIP_SNAPSHOT=1              # skip snapshot for faster kill
 
 set -u
 
@@ -19,6 +23,11 @@ SNAPSHOT_BASE="${HOME}/Library/Application Support/MacGPUSafeGuard/snapshots"
 WATCHDOG_LOG="${HOME}/Library/Application Support/MacGPUSafeGuard/watchdog/watchdog.log"
 HEARTBEAT_PATH="${HOME}/Library/Application Support/MacGPUSafeGuard/heartbeat"
 COMPILING_PATH="${HOME}/Library/Application Support/MacGPUSafeGuard/compiling"
+
+# Performance tuning
+SAMPLE_DURATION=1  # reduced from 5 to 1 second
+LOG_TAIL_LINES=10000  # only grep last N lines of Unity log
+SKIP_SNAPSHOT="${SKIP_SNAPSHOT:-0}"  # set to 1 to skip snapshot
 
 ts() { date '+%Y-%m-%d %H:%M:%S'; }
 log_watchdog() {
@@ -50,12 +59,10 @@ save_snapshot() {
     local dir="${SNAPSHOT_BASE}/${label}_${stamp}"
     mkdir -p "$dir"
 
+    # Fast path: copy log and basic info synchronously
     if [[ -f "$UNITY_LOG" ]]; then
-        cp "$UNITY_LOG" "${dir}/Editor.log"
+        cp "$UNITY_LOG" "${dir}/Editor.log" &
     fi
-
-    local sample_file="${dir}/sample.txt"
-    sample "$pid" 5 -file "$sample_file" >/dev/null 2>&1 || true
 
     {
         echo "timestamp=$(date '+%Y-%m-%d %H:%M:%S')"
@@ -84,15 +91,32 @@ save_snapshot() {
         fi
         echo '--- ps ---'
         ps -p "$pid" -o pid,ppid,stat,%cpu,etime,command || true
-        echo '--- recent MacGPUSafeGuard ---'
-        [[ -f "${dir}/Editor.log" ]] && grep -n '\[MacGPUSafeGuard\]' "${dir}/Editor.log" | tail -40 || true
-        echo '--- recent ShadowCache out of range ---'
-        [[ -f "${dir}/Editor.log" ]] && grep -n 'The RT of per object shadow is out of range!' "${dir}/Editor.log" | tail -40 || true
-        echo '--- recent crash-skipping draws ---'
-        [[ -f "${dir}/Editor.log" ]] && grep -n 'Skipping draw calls to avoid crashing\|ComputeBuffer.*none provided' "${dir}/Editor.log" | tail -40 || true
     } > "${dir}/summary.txt"
 
-    echo "snapshot saved => ${dir}"
+    # Slow operations: run in background subprocess
+    (
+        # Reduced sample duration for faster response
+        local sample_file="${dir}/sample.txt"
+        sample "$pid" "$SAMPLE_DURATION" -file "$sample_file" >/dev/null 2>&1 || true
+
+        # Only grep last N lines of log to avoid full-file scan
+        {
+            echo '--- recent MacGPUSafeGuard ---'
+            if [[ -f "${dir}/Editor.log" ]]; then
+                tail -n "$LOG_TAIL_LINES" "${dir}/Editor.log" | grep -n '\[MacGPUSafeGuard\]' | tail -40 || true
+            fi
+            echo '--- recent ShadowCache out of range ---'
+            if [[ -f "${dir}/Editor.log" ]]; then
+                tail -n "$LOG_TAIL_LINES" "${dir}/Editor.log" | grep -n 'The RT of per object shadow is out of range!' | tail -40 || true
+            fi
+            echo '--- recent crash-skipping draws ---'
+            if [[ -f "${dir}/Editor.log" ]]; then
+                tail -n "$LOG_TAIL_LINES" "${dir}/Editor.log" | grep -n 'Skipping draw calls to avoid crashing\|ComputeBuffer.*none provided' | tail -40 || true
+            fi
+        } >> "${dir}/summary.txt"
+    ) >/dev/null 2>&1 &
+
+    echo "snapshot started (async) => ${dir}"
 }
 
 kill_pattern() {
@@ -104,11 +128,15 @@ kill_pattern() {
         return 0
     fi
 
-    # save snapshot before kill
-    local first_pid
-    first_pid=$(echo "$pids" | head -1)
-    if [[ -n "$first_pid" ]]; then
-        save_snapshot "$first_pid" "$label"
+    # save snapshot before kill (unless skipped)
+    if [[ "$SKIP_SNAPSHOT" != "1" ]]; then
+        local first_pid
+        first_pid=$(echo "$pids" | head -1)
+        if [[ -n "$first_pid" ]]; then
+            save_snapshot "$first_pid" "$label"
+        fi
+    else
+        echo "  $label: skipping snapshot (SKIP_SNAPSHOT=1)"
     fi
 
     echo "  $label: killing $(echo "$pids" | wc -l | tr -d ' ') process(es)"
@@ -127,13 +155,19 @@ kill_pattern() {
 }
 
 mode="editor"
+# Handle --no-snapshot first
+if [[ "${1:-}" == "--no-snapshot" ]]; then
+    SKIP_SNAPSHOT=1
+    shift
+fi
+
 case "${1:-}" in
-    -h|--help)   print_help; exit 0 ;;
-    -l|--list)   mode="list" ;;
-    -a|--all)    mode="all" ;;
-    --hub)       mode="hub" ;;
-    -e|--editor) mode="editor" ;;
-    "")          ;;
+    -h|--help)       print_help; exit 0 ;;
+    -l|--list)       mode="list" ;;
+    -a|--all)        mode="all" ;;
+    --hub)           mode="hub" ;;
+    -e|--editor)     mode="editor" ;;
+    "")              ;;
     *)
         echo "unknown arg: $1" >&2
         print_help

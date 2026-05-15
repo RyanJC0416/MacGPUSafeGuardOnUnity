@@ -30,9 +30,6 @@ echo "Copying Resources…"
 cp Resources/watchdog.sh.tmpl "$APP/Contents/Resources/"
 cp kill-unity.sh "$APP/Contents/Resources/"
 chmod +x "$APP/Contents/Resources/kill-unity.sh"
-if [ -d Resources/templates ]; then
-  cp -R Resources/templates "$APP/Contents/Resources/"
-fi
 
 echo "Writing Info.plist…"
 cat > "$APP/Contents/Info.plist" <<EOF
@@ -46,7 +43,7 @@ cat > "$APP/Contents/Info.plist" <<EOF
     <key>CFBundleDisplayName</key><string>GpuSafeGuard</string>
     <key>CFBundlePackageType</key><string>APPL</string>
     <key>CFBundleVersion</key><string>1</string>
-    <key>CFBundleShortVersionString</key><string>1.3.7</string>
+    <key>CFBundleShortVersionString</key><string>1.3.2</string>
     <key>CFBundleIconFile</key><string>AppIcon</string>
     <key>LSMinimumSystemVersion</key><string>15.0</string>
     <key>NSPrincipalClass</key><string>NSApplication</string>

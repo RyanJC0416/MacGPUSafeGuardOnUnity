@@ -12,3 +12,7 @@ snapshots/
 
 # Logs
 *.log
+
+# Backup and archives
+*.bak
+*.zip
