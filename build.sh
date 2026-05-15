@@ -31,6 +31,12 @@ cp Resources/watchdog.sh.tmpl "$APP/Contents/Resources/"
 cp kill-unity.sh "$APP/Contents/Resources/"
 chmod +x "$APP/Contents/Resources/kill-unity.sh"
 
+# Copy Unity injection templates
+if [ -d "Resources/templates" ]; then
+  mkdir -p "$APP/Contents/Resources/templates"
+  cp -R Resources/templates/* "$APP/Contents/Resources/templates/"
+fi
+
 echo "Writing Info.plist…"
 cat > "$APP/Contents/Info.plist" <<EOF
 <?xml version="1.0" encoding="UTF-8"?>
