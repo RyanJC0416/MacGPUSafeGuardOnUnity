@@ -16,6 +16,7 @@ KILL_GRACE_SECONDS=5
 PLAYMODE_FLAG="$HOME/Library/Application Support/MacGPUSafeGuard/in_playmode"
 HEARTBEAT_PATH="$HOME/Library/Application Support/MacGPUSafeGuard/heartbeat"
 COMPILING_PATH="$HOME/Library/Application Support/MacGPUSafeGuard/compiling"
+PLAYMODE_STATE_PATH="$HOME/Library/Application Support/MacGPUSafeGuard/playmode_state"
 
 # canonicalize project path so command-line filter survives symlinks/trailing slashes
 if command -v realpath >/dev/null 2>&1 && [ -e "$PROJECT_PATH" ]; then
@@ -109,9 +110,16 @@ heartbeat_stale_seconds() {
   echo $((now - ts))
 }
 
-# Play-mode flag is refreshed by the C# heartbeat thread every 3s.
-# If the flag file is missing or older than 10s we treat it as inactive.
+# Play-mode state is written by C# on ExitingEditMode / ExitingPlayMode events.
+# If the state file is missing we fall back to the legacy flag file with mtime check.
 is_playmode_active() {
+  if [ -f "$PLAYMODE_STATE_PATH" ]; then
+    local state
+    state=$(cat "$PLAYMODE_STATE_PATH" 2>/dev/null || echo "editmode")
+    [ "$state" = "playmode" ]
+    return
+  fi
+  # legacy fallback
   [ -f "$PLAYMODE_FLAG" ] || return 1
   local now; now=$(date +%s)
   local mtime
