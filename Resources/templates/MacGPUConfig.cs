@@ -51,6 +51,55 @@ namespace Performance.MacGPU
                  "自定义 Shader 可能不兼容 SRP Batcher 的常量缓冲区规则。")]
         public bool enableSRPBatcher = false; // 默认关闭，需手动确认后开启
 
+        [Header("相机抗锯齿 (Camera Anti-Aliasing)")]
+        [Tooltip("Mac 平台抗锯齿模式。0=None, 1=FXAA, 2=SMAA, 3=TAA。\n" +
+                 "TAA 在 Metal 上开销极大（约 15-25% GPU），默认禁用。FXAA 是轻量替代方案。")]
+        [Range(0, 3)]
+        public int antiAliasingMode = 0;
+
+        [Tooltip("TAA 质量 (0=Low, 1=Medium, 2=High)。仅 antiAliasingMode=3 时生效。\n" +
+                 "Mac 推荐 Low，减少抖动采样和锐化开销。")]
+        [Range(0, 2)]
+        public int taaQuality = 0;
+
+        [Header("MSAA / HDR")]
+        [Tooltip("Mac 平台是否启用 MSAA。TAA + MSAA 同时开启在 Metal 上有驱动兼容性问题，\n" +
+                 "且会大幅增加帧缓冲内存。默认关闭。")]
+        public bool allowMSAA = false;
+
+        [Tooltip("Mac 平台是否启用 HDR。HDR 渲染使颜色缓冲变为 RGBA16F，带宽翻倍。\n" +
+                 "Mac Metal 上根据实际项目需求谨慎开启。")]
+        public bool allowHDR = false;
+
+        [Header("重型渲染特效屏蔽 (Heavy Renderer Feature Blacklist)")]
+        [Tooltip("Mac 平台自动禁用的 RendererFeature（名称部分匹配，不区分大小写）。\n" +
+                 "默认屏蔽项目中最重的 Metal GPU 负担项：\n" +
+                 "  SSGI(屏幕空间全局光照) ≈20-30% GPU\n" +
+                 "  SSR(屏幕空间反射) ≈10-15% GPU\n" +
+                 "  体积云系统 ≈15-25% GPU\n" +
+                 "  体积光照 ≈10-15% GPU\n" +
+                 "  HBAO(水平基准环境遮蔽) ≈5-10% GPU\n" +
+                 "  海洋+FFT ≈10-15% GPU\n" +
+                 "  毛发渲染 ≈5-10% GPU\n" +
+                 "  次表面散射(SSS) ≈3-5% GPU\n" +
+                 "  高精度阴影 ≈2-5% GPU")]
+        public string[] disabledRendererFeatures = new string[] {
+            "ScreenSpaceGlobalIllumination",
+            "ScreenSpaceReflection",
+            "VolumetricClouds",
+            "Volumetric Lighting",
+            "HorizonBasedAmbientOcclusion",
+            "Fur",
+            "Ocean",
+            "FastFourierTransform",
+            "SubsurfaceScattering",
+            "角色高精度阴影",
+            "CloudShadow",
+            "ParticleCloud",
+            "GlobalVolumeCloud",
+            "NepheleSky",
+        };
+
         [Header("监控与保护")]
         [Tooltip("启用 GPU 帧时间监控。当连续 N 帧超过阈值时自动降低画质。")]
         public bool enableFrameTimeMonitor = true;

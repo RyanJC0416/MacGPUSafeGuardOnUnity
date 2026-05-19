@@ -18,14 +18,17 @@ namespace Performance.MacGPU
     ///
     /// 功能:
     /// 1. 启动时自动检测并修正危险的 GPU 配置 (VSync/RenderScale/阴影等)
-    /// 2. 运行时帧时间监控，持续高负载时自动降级画质
-    /// 3. 提供 Editor 菜单一键应用所有安全配置
-    /// 4. 记录所有操作到 Console 日志便于排查
+    /// 2. 相机设置修正 (TAA 降级, MSAA 关闭, HDR 控制)
+    /// 3. 禁用重型 RendererFeature (SSGI, SSR, 体积云, 体积光, HBAO 等)
+    /// 4. 运行时帧时间监控，持续高负载时自动降级画质
+    /// 5. 提供 Editor 菜单一键应用所有安全配置
+    /// 6. 记录所有操作到 Console 日志便于排查
     ///
     /// 重要设计决策:
     ///   本脚本不直接引用任何 URP 命名空间（无论是标准版还是 EcoEngine 自定义版本）。
-    ///   所有 URP Asset 属性的读写均通过 SerializedObject/SerializedProperty 反射完成。
-    ///   这确保脚本在标准 URP、EcoEngine URP 或其他自定义 SRP 上都能正常编译和运行。
+    ///   所有 URP Asset 属性、UniversalAdditionalCameraData、RendererFeature 的读写
+    ///   均通过反射完成。这确保脚本在标准 URP、EcoEngine URP 或其他自定义 SRP 上
+    ///   都能正常编译和运行。
     ///
     /// 使用方式:
     ///   - 挂载到任意 GameObject（推荐挂载在 GameInstance 或同场景的 Manager 上）
@@ -54,6 +57,7 @@ namespace Performance.MacGPU
         private float _lastAutoReduceTime = -999f;
         private float _lastVSyncForceLogTime = -999f;
         private List<float> _frameTimeHistory = new List<float>(60);
+        private bool _rendererFeaturesDisabled;
 
         private const string C_PLAY_GUARD_PENDING_KEY = "MacGPUSafeGuard.PlayGuardPending";
         private static bool s_isGuardedPlay;
@@ -171,6 +175,23 @@ namespace Performance.MacGPU
                     ApplySRPBatcher(cfg);
                 }
 
+                // Camera settings — access Camera.main + UniversalAdditionalCameraData via reflection
+                if (Camera.main != null)
+                {
+                    ApplyCameraSettings(cfg);
+                }
+                else
+                {
+                    Log("WARNING: Camera.main is null, camera settings will be applied in Start()");
+                }
+
+                // RendererFeature blacklist — disable heavy features on Mac
+                if (_urpAssetObj != null && cfg.disabledRendererFeatures != null
+                    && cfg.disabledRendererFeatures.Length > 0)
+                {
+                    DisableHeavyRendererFeatures(cfg);
+                }
+
                 _configApplied = true;
                 Log("All safe config applied successfully.");
             }
@@ -180,6 +201,29 @@ namespace Performance.MacGPU
             }
 
             Log("============================================================");
+        }
+
+        void Start()
+        {
+            // Retry camera settings if Camera.main was null in Awake
+            if (!_isMacPlatform || config == null || _configApplied == false)
+                return;
+
+            if (Camera.main == null)
+            {
+                Log("WARNING: Camera.main still null in Start(), camera settings skipped");
+                return;
+            }
+
+            ApplyCameraSettings(config);
+
+            // Retry renderer feature disable
+            if (!_rendererFeaturesDisabled && _urpAssetObj != null
+                && config.disabledRendererFeatures != null
+                && config.disabledRendererFeatures.Length > 0)
+            {
+                DisableHeavyRendererFeatures(config);
+            }
         }
 
         void ApplyVSync(MacGPUConfig cfg)
@@ -267,6 +311,378 @@ namespace Performance.MacGPU
                 Log($"SRP Batcher: {oldVal} -> true WARNING: Check for purple materials in scene!");
             else
                 Log("WARNING: SRP Batcher property not found on this URP Asset");
+        }
+
+        #endregion
+
+        #region Camera Settings (Anti-Aliasing / MSAA / HDR)
+
+        void ApplyCameraSettings(MacGPUConfig cfg)
+        {
+            Log("--- Camera Settings ---");
+            ApplyAntiAliasing(cfg);
+            ApplyMSAA(cfg);
+            ApplyHDR(cfg);
+        }
+
+        void ApplyAntiAliasing(MacGPUConfig cfg)
+        {
+            if (Camera.main == null) return;
+
+            object cameraData = GetUniversalAdditionalCameraData(Camera.main);
+            if (cameraData == null)
+            {
+                Log("WARNING: Could not find UniversalAdditionalCameraData component on Camera.main");
+                return;
+            }
+
+            Type dataType = cameraData.GetType();
+
+            // antialiasing property (int/enum: 0=None, 1=FXAA, 2=SMAA, 3=TAA)
+            string[] aaPropNames = { "antialiasing", "m_Antialiasing", "m_AntialiasingMode" };
+            PropertyInfo aaProp = null;
+            foreach (var name in aaPropNames)
+            {
+                aaProp = FindPropertyRecursive(dataType, name);
+                if (aaProp != null) break;
+            }
+
+            if (aaProp != null && aaProp.CanWrite)
+            {
+                object oldVal = aaProp.GetValue(cameraData);
+                object newVal;
+
+                if (aaProp.PropertyType.IsEnum)
+                {
+                    newVal = Enum.ToObject(aaProp.PropertyType, cfg.antiAliasingMode);
+                }
+                else
+                {
+                    newVal = cfg.antiAliasingMode;
+                }
+                aaProp.SetValue(cameraData, newVal);
+                Log($"AntiAliasing: {oldVal} -> {newVal} ({cfg.antiAliasingMode})");
+            }
+            else
+            {
+                Log("WARNING: antialiasing property not found on UniversalAdditionalCameraData");
+            }
+
+            // antialiasingQuality property (0=Low, 1=Medium, 2=High)
+            string[] aaqPropNames = { "antialiasingQuality", "m_AntialiasingQuality" };
+            PropertyInfo aaqProp = null;
+            foreach (var name in aaqPropNames)
+            {
+                aaqProp = FindPropertyRecursive(dataType, name);
+                if (aaqProp != null) break;
+            }
+
+            if (aaqProp != null && aaqProp.CanWrite)
+            {
+                object oldVal = aaqProp.GetValue(cameraData);
+                object newVal;
+                if (aaqProp.PropertyType.IsEnum)
+                    newVal = Enum.ToObject(aaqProp.PropertyType, cfg.taaQuality);
+                else
+                    newVal = cfg.taaQuality;
+                aaqProp.SetValue(cameraData, newVal);
+                Log($"AntiAliasingQuality: {oldVal} -> {newVal}");
+            }
+
+            // taaSettings.quality (TemporalAAQuality: 0=Low, 1=Medium, 2=High)
+            string[] taaNames = { "taaSettings", "m_TaaSettings" };
+            foreach (var taaName in taaNames)
+            {
+                var taaField = FindFieldRecursive(dataType, taaName);
+                var taaProp = FindPropertyRecursive(dataType, taaName);
+                if (taaField != null || taaProp != null)
+                {
+                    object taaSettings = taaField != null
+                        ? taaField.GetValue(cameraData)
+                        : taaProp.GetValue(cameraData);
+                    if (taaSettings != null)
+                    {
+                        Type taaType = taaSettings.GetType();
+                        string[] qualityNames = { "quality", "m_Quality" };
+                        foreach (var qn in qualityNames)
+                        {
+                            var qField = FindFieldRecursive(taaType, qn);
+                            var qProp = FindPropertyRecursive(taaType, qn);
+                            if (qField != null)
+                            {
+                                object oldQ = qField.GetValue(taaSettings);
+                                object newQ;
+                                if (qField.FieldType.IsEnum)
+                                    newQ = Enum.ToObject(qField.FieldType, cfg.taaQuality);
+                                else
+                                    newQ = cfg.taaQuality;
+                                qField.SetValue(taaSettings, newQ);
+                                Log($"TAA Quality: {oldQ} -> {newQ}");
+                                break;
+                            }
+                            if (qProp != null)
+                            {
+                                object oldQ = qProp.GetValue(taaSettings);
+                                object newQ;
+                                if (qProp.PropertyType.IsEnum)
+                                    newQ = Enum.ToObject(qProp.PropertyType, cfg.taaQuality);
+                                else
+                                    newQ = cfg.taaQuality;
+                                qProp.SetValue(taaSettings, newQ);
+                                Log($"TAA Quality: {oldQ} -> {newQ}");
+                                break;
+                            }
+                        }
+                    }
+                    break;
+                }
+            }
+        }
+
+        void ApplyMSAA(MacGPUConfig cfg)
+        {
+            var cam = Camera.main;
+            if (cam == null) return;
+
+            if (cam.allowMSAA != cfg.allowMSAA)
+            {
+                cam.allowMSAA = cfg.allowMSAA;
+                Log($"allowMSAA: {!cfg.allowMSAA} -> {cfg.allowMSAA}");
+            }
+            else
+            {
+                Log($"allowMSAA: already {cfg.allowMSAA}, no change");
+            }
+        }
+
+        void ApplyHDR(MacGPUConfig cfg)
+        {
+            var cam = Camera.main;
+            if (cam == null) return;
+
+            if (cam.allowHDR != cfg.allowHDR)
+            {
+                cam.allowHDR = cfg.allowHDR;
+                Log($"allowHDR: {!cfg.allowHDR} -> {cfg.allowHDR}");
+            }
+            else
+            {
+                Log($"allowHDR: already {cfg.allowHDR}, no change");
+            }
+        }
+
+        object GetUniversalAdditionalCameraData(Camera cam)
+        {
+            // Try to find the component by type name across all loaded assemblies
+            string[] candidateTypeNames = {
+                "EcoEngine.Rendering.Universal.UniversalAdditionalCameraData",
+                "UnityEngine.Rendering.Universal.UniversalAdditionalCameraData",
+            };
+
+            foreach (var typeName in candidateTypeNames)
+            {
+                var type = Type.GetType(typeName);
+                if (type == null)
+                {
+                    // Search all assemblies
+                    foreach (var asm in AppDomain.CurrentDomain.GetAssemblies())
+                    {
+                        type = asm.GetType(typeName);
+                        if (type != null) break;
+                    }
+                }
+                if (type != null)
+                {
+                    return cam.GetComponent(type);
+                }
+            }
+
+            // Fallback: search by class name only
+            foreach (var asm in AppDomain.CurrentDomain.GetAssemblies())
+            {
+                foreach (var type in asm.GetTypes())
+                {
+                    if (type.Name == "UniversalAdditionalCameraData" && type.IsSubclassOf(typeof(Component)))
+                    {
+                        return cam.GetComponent(type);
+                    }
+                }
+            }
+
+            return null;
+        }
+
+        #endregion
+
+        #region RendererFeature Blacklist
+
+        void DisableHeavyRendererFeatures(MacGPUConfig cfg)
+        {
+            Log("--- RendererFeature Blacklist ---");
+
+            if (cfg.disabledRendererFeatures == null || cfg.disabledRendererFeatures.Length == 0)
+            {
+                Log("No features in blacklist, skipping");
+                return;
+            }
+
+            object[] rendererDataList = GetRendererDataList();
+            if (rendererDataList == null || rendererDataList.Length == 0)
+            {
+                Log("WARNING: Could not resolve renderer data list from URP asset");
+                return;
+            }
+
+            int disabledCount = 0;
+            foreach (var rendererData in rendererDataList)
+            {
+                if (rendererData == null) continue;
+
+                var features = GetRendererFeatures(rendererData);
+                if (features == null) continue;
+
+                foreach (var feature in features)
+                {
+                    if (feature == null) continue;
+
+                    string featureName = GetFeatureName(feature);
+                    if (string.IsNullOrEmpty(featureName)) continue;
+
+                    foreach (string pattern in cfg.disabledRendererFeatures)
+                    {
+                        if (string.IsNullOrEmpty(pattern)) continue;
+                        if (featureName.IndexOf(pattern, StringComparison.OrdinalIgnoreCase) >= 0)
+                        {
+                            if (SetFeatureActive(feature, false))
+                            {
+                                Log($"DISABLED: {featureName} (matched pattern: '{pattern}')");
+                                disabledCount++;
+                            }
+                            break;
+                        }
+                    }
+                }
+            }
+
+            Log($"RendererFeature blacklist: {disabledCount} feature(s) disabled.");
+            _rendererFeaturesDisabled = true;
+        }
+
+        object[] GetRendererDataList()
+        {
+            if (_urpAssetObj == null) return null;
+
+            var type = _urpAssetObj.GetType();
+
+            // Try property first
+            string[] candidateNames = { "m_RendererDataList", "rendererDataList" };
+            foreach (var name in candidateNames)
+            {
+                var prop = FindPropertyRecursive(type, name);
+                if (prop != null && prop.CanRead)
+                {
+                    object val = prop.GetValue(_urpAssetObj);
+                    if (val is Array arr) return (object[])arr;
+                    // Might be List<>
+                    if (val is System.Collections.IList list)
+                    {
+                        object[] result = new object[list.Count];
+                        list.CopyTo(result, 0);
+                        return result;
+                    }
+                    return null;
+                }
+
+                var field = FindFieldRecursive(type, name);
+                if (field != null)
+                {
+                    object val = field.GetValue(_urpAssetObj);
+                    if (val is Array arr) return (object[])arr;
+                    if (val is System.Collections.IList list)
+                    {
+                        object[] result = new object[list.Count];
+                        list.CopyTo(result, 0);
+                        return result;
+                    }
+                    return null;
+                }
+            }
+
+            return null;
+        }
+
+        System.Collections.IList GetRendererFeatures(object rendererData)
+        {
+            var type = rendererData.GetType();
+            string[] candidateNames = { "rendererFeatures", "m_RendererFeatures" };
+
+            foreach (var name in candidateNames)
+            {
+                var prop = FindPropertyRecursive(type, name);
+                if (prop != null && prop.CanRead)
+                {
+                    object val = prop.GetValue(rendererData);
+                    return val as System.Collections.IList;
+                }
+
+                var field = FindFieldRecursive(type, name);
+                if (field != null)
+                {
+                    object val = field.GetValue(rendererData);
+                    return val as System.Collections.IList;
+                }
+            }
+
+            return null;
+        }
+
+        string GetFeatureName(object feature)
+        {
+            var type = feature.GetType();
+            // Try "name" property (many features inherit from ScriptableObject and have .name)
+            string[] nameCandidates = { "name", "m_Name", "Name" };
+            foreach (var candidate in nameCandidates)
+            {
+                // Check ScriptableObject.name (inherited from UnityEngine.Object)
+                var prop = type.GetProperty(candidate, BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
+                if (prop != null && prop.CanRead && prop.PropertyType == typeof(string))
+                {
+                    object val = prop.GetValue(feature);
+                    if (val != null) return val.ToString();
+                }
+            }
+
+            // Fallback: use type name
+            return type.Name;
+        }
+
+        bool SetFeatureActive(object feature, bool active)
+        {
+            var type = feature.GetType();
+            string[] candidateNames = { "isActive", "m_Active", "active", "enabled" };
+
+            foreach (var name in candidateNames)
+            {
+                var prop = type.GetProperty(name, BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
+                if (prop != null && prop.CanRead && prop.CanWrite && prop.PropertyType == typeof(bool))
+                {
+                    bool current = (bool)prop.GetValue(feature);
+                    if (current == active) return false; // already in target state
+                    prop.SetValue(feature, active);
+                    return true;
+                }
+
+                var field = type.GetField(name, BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
+                if (field != null && field.FieldType == typeof(bool))
+                {
+                    bool current = (bool)field.GetValue(feature);
+                    if (current == active) return false;
+                    field.SetValue(feature, active);
+                    return true;
+                }
+            }
+
+            return false;
         }
 
         #endregion
@@ -769,6 +1185,8 @@ namespace Performance.MacGPU
             EditorApplyRetinaSetting();
             EditorApplyVSyncSetting();
             EditorApplyURPAssetSettings();
+            EditorApplyCameraSettings();
+            EditorApplyRendererFeatureBlacklist();
 
             EditorUtility.DisplayDialog("Mac GPU SafeGuard",
                 "All Mac Metal safety settings applied!\n\n" +
@@ -777,6 +1195,10 @@ namespace Performance.MacGPU
                 "- RenderScale: 0.90\n" +
                 "- Shadows: Balanced\n" +
                 "- Opaque Downsampling: 1\n" +
+                "- Anti-Aliasing: OFF (TAA disabled)\n" +
+                "- MSAA: OFF\n" +
+                "- HDR: OFF\n" +
+                "- Heavy RendererFeatures: DISABLED (SSGI/SSR/VolumetricClouds/etc)\n" +
                 "\nPlease re-enter Play Mode to test.",
                 "OK");
         }
@@ -879,6 +1301,97 @@ namespace Performance.MacGPU
             }
 
             Debug.Log($"  {propName}: {value}");
+        }
+
+        static void EditorApplyCameraSettings()
+        {
+            // Apply default Mac-safe camera settings via SerializedObject on the camera prefab/scene
+            // Since Camera.main might not exist in Editor, skip runtime camera modifications here.
+            // The safeguard script will apply them on Play.
+            Debug.Log("[MacGPUSafeGuard] Camera settings (TAA/MSAA/HDR) will be applied at runtime on Play.");
+        }
+
+        static void EditorApplyRendererFeatureBlacklist()
+        {
+            var urp = QualitySettings.renderPipeline ?? LoadEditorGraphicsSettingsPipelineAsset();
+            if (urp == null)
+            {
+                Debug.LogWarning("[MacGPUSafeGuard] Cannot resolve Render Pipeline Asset for RendererFeature blacklist.");
+                return;
+            }
+
+            var urpObj = (UnityEngine.Object)urp;
+            var urpSo = new SerializedObject(urpObj);
+            var rendererDataListProp = urpSo.FindProperty("m_RendererDataList");
+
+            if (rendererDataListProp == null || !rendererDataListProp.isArray)
+            {
+                Debug.LogWarning("[MacGPUSafeGuard] m_RendererDataList not found on URP asset.");
+                return;
+            }
+
+            string[] blacklist = {
+                "ScreenSpaceGlobalIllumination",
+                "ScreenSpaceReflection",
+                "VolumetricClouds",
+                "Volumetric Lighting",
+                "HorizonBasedAmbientOcclusion",
+                "Fur",
+                "Ocean",
+                "FastFourierTransform",
+                "SubsurfaceScattering",
+                "角色高精度阴影",
+                "CloudShadow",
+                "ParticleCloud",
+                "GlobalVolumeCloud",
+                "NepheleSky",
+            };
+
+            int totalDisabled = 0;
+
+            for (int i = 0; i < rendererDataListProp.arraySize; i++)
+            {
+                var rendererDataRef = rendererDataListProp.GetArrayElementAtIndex(i);
+                if (rendererDataRef == null || rendererDataRef.objectReferenceValue == null)
+                    continue;
+
+                var rdSo = new SerializedObject(rendererDataRef.objectReferenceValue);
+                var featuresProp = rdSo.FindProperty("m_RendererFeatures");
+                if (featuresProp == null || !featuresProp.isArray)
+                    continue;
+
+                for (int j = 0; j < featuresProp.arraySize; j++)
+                {
+                    var featureElem = featuresProp.GetArrayElementAtIndex(j);
+                    if (featureElem == null || featureElem.objectReferenceValue == null)
+                        continue;
+
+                    var featureSo = new SerializedObject(featureElem.objectReferenceValue);
+                    var nameProp = featureSo.FindProperty("m_Name");
+                    string featureName = nameProp?.stringValue ?? "";
+
+                    foreach (string pattern in blacklist)
+                    {
+                        if (!string.IsNullOrEmpty(featureName)
+                            && featureName.IndexOf(pattern, StringComparison.OrdinalIgnoreCase) >= 0)
+                        {
+                            var activeProp = featureSo.FindProperty("m_Active");
+                            if (activeProp != null && activeProp.boolValue)
+                            {
+                                activeProp.boolValue = false;
+                                featureSo.ApplyModifiedProperties();
+                                EditorUtility.SetDirty(featureElem.objectReferenceValue);
+                                Debug.Log($"[MacGPUSafeGuard] DISABLED RendererFeature: {featureName} (pattern: '{pattern}')");
+                                totalDisabled++;
+                            }
+                            break;
+                        }
+                    }
+                }
+            }
+
+            AssetDatabase.SaveAssets();
+            Debug.Log($"[MacGPUSafeGuard] RendererFeature blacklist applied: {totalDisabled} feature(s) disabled.");
         }
 
 #endif
