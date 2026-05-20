@@ -136,6 +136,13 @@ struct SettingsWindow: View {
                                 .font(.system(.body, design: .monospaced))
                                 .textFieldStyle(.roundedBorder)
                         }
+                        HStack {
+                            Text("P4 Password")
+                                .frame(width: 110, alignment: .leading)
+                            SecureField("leave empty if using ticket auth", text: $state.p4Password)
+                                .font(.system(.body, design: .monospaced))
+                                .textFieldStyle(.roundedBorder)
+                        }
                         PathRow(label: "Unity project", path: $state.unityProjectPath, kind: .directory)
                     }
                     .padding(12)

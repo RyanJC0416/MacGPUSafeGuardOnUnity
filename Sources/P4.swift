@@ -5,6 +5,7 @@ struct P4Manager {
     let p4Port: String
     let p4Client: String
     let p4User: String
+    let p4Password: String
     let cwd: String?
 
     private var p4Env: [String: String] {
@@ -19,6 +20,7 @@ struct P4Manager {
         // auto-detect P4USER from ~/.p4tickets if not manually set
         let user = p4User.isEmpty ? Self.userFromTickets(for: p4Port) : p4User
         if !user.isEmpty { e["P4USER"] = user }
+        if !p4Password.isEmpty { e["P4PASSWD"] = p4Password }
         return e
     }
 

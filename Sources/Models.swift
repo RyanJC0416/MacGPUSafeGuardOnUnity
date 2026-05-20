@@ -29,6 +29,7 @@ enum DefaultsKey {
     static let unityProjectPath = "gsg.unityProjectPath"
     static let unityEditorBinary = "gsg.unityEditorBinary"
     static let defaultChangelist = "gsg.defaultChangelist"
+    static let p4Password = "gsg.p4Password"
 }
 
 struct WatchdogStatus: Equatable {

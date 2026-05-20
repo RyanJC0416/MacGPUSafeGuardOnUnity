@@ -14,6 +14,7 @@ final class AppState: ObservableObject {
     @Published var unityProjectPath: String { didSet { UserDefaults.standard.set(unityProjectPath, forKey: DefaultsKey.unityProjectPath) } }
     @Published var unityEditorBinary: String { didSet { UserDefaults.standard.set(unityEditorBinary, forKey: DefaultsKey.unityEditorBinary) } }
     @Published var defaultChangelist: String { didSet { UserDefaults.standard.set(defaultChangelist, forKey: DefaultsKey.defaultChangelist) } }
+    @Published var p4Password: String { didSet { UserDefaults.standard.set(p4Password, forKey: DefaultsKey.p4Password) } }
 
     @Published var watchdogStatus: WatchdogStatus = WatchdogStatus(running: false, pid: nil, raw: "(unknown)")
     @Published var watchdogLogTail: String = ""
@@ -56,6 +57,7 @@ final class AppState: ObservableObject {
             DefaultsKey.unityProjectPath: "",
             DefaultsKey.unityEditorBinary: "",
             DefaultsKey.defaultChangelist: "",
+            DefaultsKey.p4Password: "",
         ])
         self.p4Binary = d.string(forKey: DefaultsKey.p4Binary) ?? ""
         self.p4Port = d.string(forKey: DefaultsKey.p4Port) ?? ""
@@ -64,12 +66,13 @@ final class AppState: ObservableObject {
         self.unityProjectPath = d.string(forKey: DefaultsKey.unityProjectPath) ?? ""
         self.unityEditorBinary = d.string(forKey: DefaultsKey.unityEditorBinary) ?? ""
         self.defaultChangelist = d.string(forKey: DefaultsKey.defaultChangelist) ?? ""
+        self.p4Password = d.string(forKey: DefaultsKey.p4Password) ?? ""
         startBackgroundRefresh()
         checkForUpdates()
     }
 
     func makeP4() -> P4Manager {
-        P4Manager(p4Binary: p4Binary, p4Port: p4Port, p4Client: p4Client, p4User: p4User, cwd: unityProjectPath.isEmpty ? nil : unityProjectPath)
+        P4Manager(p4Binary: p4Binary, p4Port: p4Port, p4Client: p4Client, p4User: p4User, p4Password: p4Password, cwd: unityProjectPath.isEmpty ? nil : unityProjectPath)
     }
 
     func makeInjector() -> UnityInjector {
