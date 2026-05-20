@@ -526,43 +526,116 @@ namespace Performance.MacGPU
                 return;
             }
 
-            object[] rendererDataList = GetRendererDataList();
-            if (rendererDataList == null || rendererDataList.Length == 0)
+            if (_urpAssetObj == null)
             {
-                Log("WARNING: Could not resolve renderer data list from URP asset");
+                Log("WARNING: URP asset not resolved, skipping RendererFeature blacklist");
+                return;
+            }
+
+            var urpObj = _urpAssetObj as UnityEngine.Object;
+            if (urpObj == null)
+            {
+                Log("WARNING: URP asset is not a UnityEngine.Object");
                 return;
             }
 
             int disabledCount = 0;
-            foreach (var rendererData in rendererDataList)
+
+#if UNITY_EDITOR
+            // Primary: SerializedObject approach — uses Unity serialized names and works
+            // regardless of EcoEngine's C# property/field naming conventions.
+            var urpSo = new SerializedObject(urpObj);
+            var rendererDataListProp = urpSo.FindProperty("m_RendererDataList");
+
+            if (rendererDataListProp == null || !rendererDataListProp.isArray)
             {
-                if (rendererData == null) continue;
-
-                var features = GetRendererFeatures(rendererData);
-                if (features == null) continue;
-
-                foreach (var feature in features)
+                Log("WARNING: m_RendererDataList not found on URP asset via SerializedObject");
+            }
+            else
+            {
+                for (int i = 0; i < rendererDataListProp.arraySize; i++)
                 {
-                    if (feature == null) continue;
+                    var dataRef = rendererDataListProp.GetArrayElementAtIndex(i);
+                    if (dataRef == null || dataRef.objectReferenceValue == null)
+                        continue;
 
-                    string featureName = GetFeatureName(feature);
-                    if (string.IsNullOrEmpty(featureName)) continue;
+                    var rdSo = new SerializedObject(dataRef.objectReferenceValue);
+                    var featuresProp = rdSo.FindProperty("m_RendererFeatures");
+                    if (featuresProp == null || !featuresProp.isArray)
+                        continue;
 
-                    foreach (string pattern in cfg.disabledRendererFeatures)
+                    for (int j = 0; j < featuresProp.arraySize; j++)
                     {
-                        if (string.IsNullOrEmpty(pattern)) continue;
-                        if (featureName.IndexOf(pattern, StringComparison.OrdinalIgnoreCase) >= 0)
+                        var featureElem = featuresProp.GetArrayElementAtIndex(j);
+                        if (featureElem == null || featureElem.objectReferenceValue == null)
+                            continue;
+
+                        var featureSo = new SerializedObject(featureElem.objectReferenceValue);
+                        var nameProp = featureSo.FindProperty("m_Name");
+                        string featureName = nameProp?.stringValue ?? "";
+
+                        if (string.IsNullOrEmpty(featureName))
+                            continue;
+
+                        foreach (string pattern in cfg.disabledRendererFeatures)
                         {
-                            if (SetFeatureActive(feature, false))
+                            if (string.IsNullOrEmpty(pattern)) continue;
+                            if (featureName.IndexOf(pattern, StringComparison.OrdinalIgnoreCase) >= 0)
                             {
-                                Log($"DISABLED: {featureName} (matched pattern: '{pattern}')");
-                                disabledCount++;
+                                var activeProp = featureSo.FindProperty("m_Active");
+                                if (activeProp != null && activeProp.boolValue)
+                                {
+                                    activeProp.boolValue = false;
+                                    featureSo.ApplyModifiedProperties();
+                                    Log($"DISABLED: {featureName} (matched pattern: '{pattern}')");
+                                    disabledCount++;
+                                }
+                                break;
                             }
-                            break;
                         }
                     }
                 }
             }
+#else
+            // Player build: reflection approach — EcoEngine fork may use different property names
+            object[] rendererDataList = GetRendererDataList();
+            if (rendererDataList == null || rendererDataList.Length == 0)
+            {
+                Log("WARNING: Could not resolve renderer data list from URP asset");
+            }
+            else
+            {
+                foreach (var rendererData in rendererDataList)
+                {
+                    if (rendererData == null) continue;
+
+                    var features = GetRendererFeatures(rendererData);
+                    if (features == null) continue;
+
+                    foreach (var feature in features)
+                    {
+                        if (feature == null) continue;
+
+                        string featureName = GetFeatureName(feature);
+                        if (string.IsNullOrEmpty(featureName)) continue;
+
+                        foreach (string pattern in cfg.disabledRendererFeatures)
+                        {
+                            if (string.IsNullOrEmpty(pattern)) continue;
+                            if (featureName.IndexOf(pattern, StringComparison.OrdinalIgnoreCase) >= 0)
+                            {
+                                if (SetFeatureActive(feature, false))
+                                {
+                                    Log($"DISABLED: {featureName} (matched pattern: '{pattern}')");
+                                    disabledCount++;
+                                }
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+#endif
 
             Log($"RendererFeature blacklist: {disabledCount} feature(s) disabled.");
             _rendererFeaturesDisabled = true;
@@ -574,7 +647,6 @@ namespace Performance.MacGPU
 
             var type = _urpAssetObj.GetType();
 
-            // Try property first
             string[] candidateNames = { "m_RendererDataList", "rendererDataList" };
             foreach (var name in candidateNames)
             {
@@ -583,7 +655,6 @@ namespace Performance.MacGPU
                 {
                     object val = prop.GetValue(_urpAssetObj);
                     if (val is Array arr) return (object[])arr;
-                    // Might be List<>
                     if (val is System.Collections.IList list)
                     {
                         object[] result = new object[list.Count];
@@ -639,11 +710,9 @@ namespace Performance.MacGPU
         string GetFeatureName(object feature)
         {
             var type = feature.GetType();
-            // Try "name" property (many features inherit from ScriptableObject and have .name)
             string[] nameCandidates = { "name", "m_Name", "Name" };
             foreach (var candidate in nameCandidates)
             {
-                // Check ScriptableObject.name (inherited from UnityEngine.Object)
                 var prop = type.GetProperty(candidate, BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
                 if (prop != null && prop.CanRead && prop.PropertyType == typeof(string))
                 {
@@ -652,7 +721,6 @@ namespace Performance.MacGPU
                 }
             }
 
-            // Fallback: use type name
             return type.Name;
         }
 
@@ -667,7 +735,7 @@ namespace Performance.MacGPU
                 if (prop != null && prop.CanRead && prop.CanWrite && prop.PropertyType == typeof(bool))
                 {
                     bool current = (bool)prop.GetValue(feature);
-                    if (current == active) return false; // already in target state
+                    if (current == active) return false;
                     prop.SetValue(feature, active);
                     return true;
                 }
