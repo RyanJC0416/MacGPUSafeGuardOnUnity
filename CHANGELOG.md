@@ -1,5 +1,46 @@
 # MacGPUSafeGuard Changelog
 
+## v1.5.1 - 2026-05-20 - Watchdog 根因分类增强
+
+### 背景
+v1.5.0 前发生一次 kill（5/19 22:26），经诊断确认为 ComputeShader kernel 编译卡死主线程引发，
+验证了 v1.5.0 RendererFeature 黑名单的必要性。同时发现 watchdog kill summary 缺少根因分类，
+排查效率低。
+
+### 新增功能
+
+#### 1. 根因自动分类 (`classify_freeze_cause`)
+Kill 时自动扫描 sample 堆栈 + Editor.log 尾部，输出以下分类：
+- **ComputeShader kernel compilation hang** — 检测 sample 中 `ComputeShader_CUSTOM_Dispatch` / `CreateKernelVariant` 特征
+- **BigWorld resource loading deadlock** — 检测 `[BigWorld]Material is null` 等资源加载错误
+- **ShadowCache / Metal GPU timeout** — 检测 `The RT of per object shadow is out of range` 等
+- **MagicaCloth compute pipeline hang** — 检测 MagicaCloth 相关堆栈
+- **main thread deadlock** — 检测 semaphore/monitor 等待模式
+- **async asset loading hang** — 检测 `AsyncGameObjectPool` 等
+
+#### 2. Kill Summary 扩展字段
+- 新增 `classification=` 行，包含上述分类结果
+- 新增 `--- top blocked call chain (first 8 frames) ---` 快速堆栈摘要
+- 新增 `--- recent BigWorld errors ---` 资源加载错误诊断
+- 新增 `--- recent ComputeShader / Metal warnings ---` GPU 错误诊断
+- 新增 `--- last 30 log lines ---` 尾部日志完整快照
+
+#### 3. 检测模式扩展
+- `recent_issue_present()` 新增 `[BigWorld]Material is null` 模式
+- sample 签名提取覆盖范围扩展
+
+### Kill 案例分析 (2026-05-19 22:26)
+- **原因**: `editor log stagnant for 15s in play mode`
+- **分类**: ComputeShader kernel compilation hang (Metal compiler blocking main thread)
+- **根因**: ComputeShader_CUSTOM_Dispatch → CreateKernelVariant 阻塞主线程
+- **影响**: 主线程完全冻结，heartbeat 消失，进程 CPU 0.3%
+- **预防**: v1.5.0 RendererFeature 黑名单可禁用触发源 (SSGI/SSR/HBAO 等)
+
+### 文件变更
+- `Resources/watchdog.sh.tmpl` — 新增 `classify_freeze_cause()` 函数，扩展 `snapshot_and_kill()` 诊断输出
+
+---
+
 ## v1.5.0 - 2026-05-19 - URP 渲染策略更新
 
 ### 背景
