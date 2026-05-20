@@ -1052,6 +1052,7 @@ namespace Performance.MacGPU
                     UnregisterGuardedPlayHooks();
                     try { System.IO.File.WriteAllText(flagPath, "1"); } catch { }
                     StartHeartbeat();
+                    EditorPreApplyRendererFeatureBlacklist();
                     Debug.Log("[MacGPUSafeGuard] macOS 下普通 Play 默认走保护路径。");
                     break;
 
@@ -1377,6 +1378,79 @@ namespace Performance.MacGPU
             // Since Camera.main might not exist in Editor, skip runtime camera modifications here.
             // The safeguard script will apply them on Play.
             Debug.Log("[MacGPUSafeGuard] Camera settings (TAA/MSAA/HDR) will be applied at runtime on Play.");
+        }
+
+        // Called automatically before entering Play Mode to disable heavy features
+        // BEFORE shader compilation begins. Uses SerializedObject (no SaveAssets).
+        static void EditorPreApplyRendererFeatureBlacklist()
+        {
+            if (Application.platform != RuntimePlatform.OSXEditor) return;
+
+            var urp = QualitySettings.renderPipeline ?? LoadEditorGraphicsSettingsPipelineAsset();
+            if (urp == null) return;
+
+            var urpObj = (UnityEngine.Object)urp;
+            var urpSo = new SerializedObject(urpObj);
+            var rendererDataListProp = urpSo.FindProperty("m_RendererDataList");
+
+            if (rendererDataListProp == null || !rendererDataListProp.isArray) return;
+
+            string[] blacklist = {
+                "ScreenSpaceGlobalIllumination",
+                "ScreenSpaceReflection",
+                "VolumetricClouds",
+                "Volumetric Lighting",
+                "HorizonBasedAmbientOcclusion",
+                "Fur",
+                "Ocean",
+                "FastFourierTransform",
+                "SubsurfaceScattering",
+                "角色高精度阴影",
+                "CloudShadow",
+                "ParticleCloud",
+                "GlobalVolumeCloud",
+                "NepheleSky",
+            };
+
+            int disabledCount = 0;
+            for (int i = 0; i < rendererDataListProp.arraySize; i++)
+            {
+                var dataRef = rendererDataListProp.GetArrayElementAtIndex(i);
+                if (dataRef == null || dataRef.objectReferenceValue == null) continue;
+
+                var rdSo = new SerializedObject(dataRef.objectReferenceValue);
+                var featuresProp = rdSo.FindProperty("m_RendererFeatures");
+                if (featuresProp == null || !featuresProp.isArray) continue;
+
+                for (int j = 0; j < featuresProp.arraySize; j++)
+                {
+                    var featureElem = featuresProp.GetArrayElementAtIndex(j);
+                    if (featureElem == null || featureElem.objectReferenceValue == null) continue;
+
+                    var featureSo = new SerializedObject(featureElem.objectReferenceValue);
+                    var nameProp = featureSo.FindProperty("m_Name");
+                    string featureName = nameProp?.stringValue ?? "";
+                    if (string.IsNullOrEmpty(featureName)) continue;
+
+                    foreach (string pattern in blacklist)
+                    {
+                        if (featureName.IndexOf(pattern, StringComparison.OrdinalIgnoreCase) >= 0)
+                        {
+                            var activeProp = featureSo.FindProperty("m_Active");
+                            if (activeProp != null && activeProp.boolValue)
+                            {
+                                activeProp.boolValue = false;
+                                featureSo.ApplyModifiedProperties();
+                                disabledCount++;
+                            }
+                            break;
+                        }
+                    }
+                }
+            }
+
+            if (disabledCount > 0)
+                Debug.Log($"[MacGPUSafeGuard] Pre-Play: {disabledCount} heavy RendererFeature(s) disabled before shader compilation.");
         }
 
         static void EditorApplyRendererFeatureBlacklist()
