@@ -1037,6 +1037,10 @@ namespace Performance.MacGPU
 
             EditorApplication.playModeStateChanged -= OnEditorPlayModeStateChanged;
             EditorApplication.playModeStateChanged += OnEditorPlayModeStateChanged;
+
+            // Run immediately on assembly reload so features are disabled
+            // BEFORE the user even clicks Play.
+            EditorPreApplyRendererFeatureBlacklist();
         }
 
         private static void OnEditorPlayModeStateChanged(PlayModeStateChange change)
