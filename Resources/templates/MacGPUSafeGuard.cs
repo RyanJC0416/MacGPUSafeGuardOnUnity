@@ -1038,6 +1038,16 @@ namespace Performance.MacGPU
             EditorApplication.playModeStateChanged -= OnEditorPlayModeStateChanged;
             EditorApplication.playModeStateChanged += OnEditorPlayModeStateChanged;
 
+            // Reset stale playmode flags left over from a previous kill/crash.
+            // If the last process was killed, EnteredEditMode never fired to clean up.
+            var guardDir = System.IO.Path.Combine(
+                System.Environment.GetFolderPath(System.Environment.SpecialFolder.ApplicationData),
+                "MacGPUSafeGuard");
+            var playmodeFlag = System.IO.Path.Combine(guardDir, "in_playmode");
+            var playmodeStatePath = System.IO.Path.Combine(guardDir, "playmode_state");
+            try { System.IO.File.Delete(playmodeFlag); } catch { }
+            try { System.IO.File.WriteAllText(playmodeStatePath, "editmode"); } catch { }
+
             // Run immediately on assembly reload so features are disabled
             // BEFORE the user even clicks Play.
             EditorPreApplyRendererFeatureBlacklist();
@@ -1045,9 +1055,11 @@ namespace Performance.MacGPU
 
         private static void OnEditorPlayModeStateChanged(PlayModeStateChange change)
         {
-            var flagPath = System.IO.Path.Combine(
+            var guardDir = System.IO.Path.Combine(
                 System.Environment.GetFolderPath(System.Environment.SpecialFolder.ApplicationData),
-                "MacGPUSafeGuard", "in_playmode");
+                "MacGPUSafeGuard");
+            var flagPath = System.IO.Path.Combine(guardDir, "in_playmode");
+            var playmodeStatePath = System.IO.Path.Combine(guardDir, "playmode_state");
             switch (change)
             {
                 case PlayModeStateChange.ExitingEditMode:
@@ -1055,6 +1067,7 @@ namespace Performance.MacGPU
                     s_quarantinedClothInstanceIds.Clear();
                     UnregisterGuardedPlayHooks();
                     try { System.IO.File.WriteAllText(flagPath, "1"); } catch { }
+                    try { System.IO.File.WriteAllText(playmodeStatePath, "playmode"); } catch { }
                     StartHeartbeat();
                     EditorPreApplyRendererFeatureBlacklist();
                     Debug.Log("[MacGPUSafeGuard] macOS 下普通 Play 默认走保护路径。");
@@ -1067,6 +1080,7 @@ namespace Performance.MacGPU
                     s_quarantinedClothInstanceIds.Clear();
                     UnregisterGuardedPlayHooks();
                     try { System.IO.File.Delete(flagPath); } catch { }
+                    try { System.IO.File.WriteAllText(playmodeStatePath, "editmode"); } catch { }
                     StopHeartbeat();
                     break;
             }
