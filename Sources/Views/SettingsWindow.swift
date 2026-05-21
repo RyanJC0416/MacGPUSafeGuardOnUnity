@@ -279,7 +279,18 @@ struct SettingsWindow: View {
 
                         VStack(alignment: .leading, spacing: 8) {
                             HStack(spacing: 12) {
-                                Button("Delete Editor.log snapshots") {
+                                Button("Delete kill-dump folders") {
+                                    state.deleteKillDumpsOnly()
+                                }
+                                .disabled(state.snapshotSizes.killDumpCount == 0)
+                                Text("≈ \(state.snapshotSizes.formatted(state.snapshotSizes.killDumpBytes)) (\(state.snapshotSizes.killDumpCount) folders — kill-unity.sh dumps, usually largest)")
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                                Spacer()
+                            }
+
+                            HStack(spacing: 12) {
+                                Button("Delete watchdog Editor.log snapshots") {
                                     state.deleteEditorLogSnapshots()
                                 }
                                 .disabled(state.snapshotSizes.editorLogCount == 0)
@@ -294,7 +305,7 @@ struct SettingsWindow: View {
                                     state.deleteOldSnapshots()
                                 }
                                 .disabled(state.snapshotSizes.olderThan7DaysCount == 0)
-                                Text("≈ \(state.snapshotSizes.formatted(state.snapshotSizes.olderThan7DaysBytes)) (\(state.snapshotSizes.olderThan7DaysCount) files)")
+                                Text("≈ \(state.snapshotSizes.formatted(state.snapshotSizes.olderThan7DaysBytes)) (\(state.snapshotSizes.olderThan7DaysCount) items)")
                                     .font(.caption)
                                     .foregroundColor(.secondary)
                                 Spacer()
@@ -307,7 +318,7 @@ struct SettingsWindow: View {
                                 .buttonStyle(.borderedProminent)
                                 .tint(.red)
                                 .disabled(state.snapshotSizes.totalCount == 0)
-                                Text("≈ \(state.snapshotSizes.formatted(state.snapshotSizes.totalBytes)) (\(state.snapshotSizes.totalCount) files)")
+                                Text("≈ \(state.snapshotSizes.formatted(state.snapshotSizes.totalBytes)) (\(state.snapshotSizes.totalCount) items)")
                                     .font(.caption)
                                     .foregroundColor(.secondary)
                                 Spacer()

@@ -320,6 +320,10 @@ final class AppState: ObservableObject {
         runDelete { SnapshotManager.deleteEditorLogsOnly() }
     }
 
+    func deleteKillDumpsOnly() {
+        runDelete { SnapshotManager.deleteKillDumpsOnly() }
+    }
+
     private func runDelete(_ op: @escaping () -> SnapshotDeleteResult) {
         Task.detached(priority: .userInitiated) {
             let result = op()
