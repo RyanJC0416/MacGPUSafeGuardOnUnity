@@ -279,22 +279,11 @@ struct SettingsWindow: View {
 
                         VStack(alignment: .leading, spacing: 8) {
                             HStack(spacing: 12) {
-                                Button("Delete kill-dump folders") {
-                                    state.deleteKillDumpsOnly()
+                                Button("Delete snapshots older than 3 days") {
+                                    state.deleteSnapshotsOlderThan3Days()
                                 }
-                                .disabled(state.snapshotSizes.killDumpCount == 0)
-                                Text("≈ \(state.snapshotSizes.formatted(state.snapshotSizes.killDumpBytes)) (\(state.snapshotSizes.killDumpCount) folders — kill-unity.sh dumps, usually largest)")
-                                    .font(.caption)
-                                    .foregroundColor(.secondary)
-                                Spacer()
-                            }
-
-                            HStack(spacing: 12) {
-                                Button("Delete watchdog Editor.log snapshots") {
-                                    state.deleteEditorLogSnapshots()
-                                }
-                                .disabled(state.snapshotSizes.editorLogCount == 0)
-                                Text("≈ \(state.snapshotSizes.formatted(state.snapshotSizes.editorLogBytes)) (\(state.snapshotSizes.editorLogCount) files)")
+                                .disabled(state.snapshotSizes.olderThan3DaysCount == 0)
+                                Text("≈ \(state.snapshotSizes.formatted(state.snapshotSizes.olderThan3DaysBytes)) (\(state.snapshotSizes.olderThan3DaysCount) items)")
                                     .font(.caption)
                                     .foregroundColor(.secondary)
                                 Spacer()
@@ -302,7 +291,7 @@ struct SettingsWindow: View {
 
                             HStack(spacing: 12) {
                                 Button("Delete snapshots older than 7 days") {
-                                    state.deleteOldSnapshots()
+                                    state.deleteSnapshotsOlderThan7Days()
                                 }
                                 .disabled(state.snapshotSizes.olderThan7DaysCount == 0)
                                 Text("≈ \(state.snapshotSizes.formatted(state.snapshotSizes.olderThan7DaysBytes)) (\(state.snapshotSizes.olderThan7DaysCount) items)")

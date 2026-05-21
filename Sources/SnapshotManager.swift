@@ -2,17 +2,11 @@ import Foundation
 
 struct SnapshotSizes: Equatable {
     var totalBytes: Int64 = 0
-    var editorLogBytes: Int64 = 0
-    var sampleBytes: Int64 = 0
-    var summaryBytes: Int64 = 0
-    var olderThan7DaysBytes: Int64 = 0
-    var killDumpBytes: Int64 = 0
     var totalCount: Int = 0
-    var editorLogCount: Int = 0
-    var sampleCount: Int = 0
-    var summaryCount: Int = 0
+    var olderThan3DaysBytes: Int64 = 0
+    var olderThan3DaysCount: Int = 0
+    var olderThan7DaysBytes: Int64 = 0
     var olderThan7DaysCount: Int = 0
-    var killDumpCount: Int = 0
 
     func formatted(_ bytes: Int64) -> String {
         let gb = Double(bytes) / 1024 / 1024 / 1024
@@ -46,7 +40,8 @@ enum SnapshotManager {
     static func computeSizes() -> SnapshotSizes {
         var sizes = SnapshotSizes()
         let fm = FileManager.default
-        let cutoff = Date(timeIntervalSinceNow: -7 * 24 * 3600)
+        let cutoff3 = Date(timeIntervalSinceNow: -3 * 24 * 3600)
+        let cutoff7 = Date(timeIntervalSinceNow: -7 * 24 * 3600)
 
         // 1) Watchdog snapshot files (flat files in watchdog/)
         if let entries = try? fm.contentsOfDirectory(atPath: watchdogDir.path) {
@@ -59,14 +54,10 @@ enum SnapshotManager {
 
                 sizes.totalBytes += size
                 sizes.totalCount += 1
-                if name.hasPrefix(editorLogPrefix) {
-                    sizes.editorLogBytes += size; sizes.editorLogCount += 1
-                } else if name.hasPrefix(samplePrefix) {
-                    sizes.sampleBytes += size; sizes.sampleCount += 1
-                } else if name.hasPrefix(summaryPrefix) {
-                    sizes.summaryBytes += size; sizes.summaryCount += 1
+                if mtime < cutoff3 {
+                    sizes.olderThan3DaysBytes += size; sizes.olderThan3DaysCount += 1
                 }
-                if mtime < cutoff {
+                if mtime < cutoff7 {
                     sizes.olderThan7DaysBytes += size; sizes.olderThan7DaysCount += 1
                 }
             }
@@ -80,11 +71,11 @@ enum SnapshotManager {
                 let (dirSize, dirMtime) = directorySizeAndMtime(dirUrl)
                 sizes.totalBytes += dirSize
                 sizes.totalCount += 1
-                sizes.killDumpBytes += dirSize
-                sizes.killDumpCount += 1
-                if dirMtime < cutoff {
-                    sizes.olderThan7DaysBytes += dirSize
-                    sizes.olderThan7DaysCount += 1
+                if dirMtime < cutoff3 {
+                    sizes.olderThan3DaysBytes += dirSize; sizes.olderThan3DaysCount += 1
+                }
+                if dirMtime < cutoff7 {
+                    sizes.olderThan7DaysBytes += dirSize; sizes.olderThan7DaysCount += 1
                 }
             }
         }
@@ -103,18 +94,6 @@ enum SnapshotManager {
         let a = deleteWatchdog { _, mtime in mtime < cutoff }
         let b = deleteKillDumps { _, mtime in mtime < cutoff }
         return combine(a, b)
-    }
-
-    static func deleteWatchdogSnapshots() -> SnapshotDeleteResult {
-        return deleteWatchdog { _, _ in true }
-    }
-
-    static func deleteKillDumpsOnly() -> SnapshotDeleteResult {
-        return deleteKillDumps { _, _ in true }
-    }
-
-    static func deleteEditorLogsOnly() -> SnapshotDeleteResult {
-        return deleteWatchdog { name, _ in name.hasPrefix(editorLogPrefix) }
     }
 
     private static func deleteWatchdog(filter: (String, Date) -> Bool) -> SnapshotDeleteResult {

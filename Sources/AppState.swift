@@ -312,16 +312,12 @@ final class AppState: ObservableObject {
         runDelete { SnapshotManager.deleteAll() }
     }
 
-    func deleteOldSnapshots() {
+    func deleteSnapshotsOlderThan7Days() {
         runDelete { SnapshotManager.deleteOlderThan(days: 7) }
     }
 
-    func deleteEditorLogSnapshots() {
-        runDelete { SnapshotManager.deleteEditorLogsOnly() }
-    }
-
-    func deleteKillDumpsOnly() {
-        runDelete { SnapshotManager.deleteKillDumpsOnly() }
+    func deleteSnapshotsOlderThan3Days() {
+        runDelete { SnapshotManager.deleteOlderThan(days: 3) }
     }
 
     private func runDelete(_ op: @escaping () -> SnapshotDeleteResult) {
