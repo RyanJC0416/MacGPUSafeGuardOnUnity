@@ -1193,7 +1193,7 @@ namespace Performance.MacGPU
                     }
                 }
 
-                Debug.Log($"[MacGPUSafeGuard] Auto-disabled {disabledCount} heavy RendererFeature(s) (in-memory, restores on restart).");
+                Debug.Log($"[MacGPUSafeGuard] Auto-disabled {disabledCount} heavy RendererFeature(s) for macOS.");
             }
             catch (Exception ex)
             {

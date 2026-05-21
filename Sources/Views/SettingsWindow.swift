@@ -257,6 +257,78 @@ struct SettingsWindow: View {
                     .padding(12)
                     .background(Color(NSColor.controlBackgroundColor))
                     .cornerRadius(8)
+
+                    // Snapshot Cleanup
+                    VStack(alignment: .leading, spacing: 12) {
+                        HStack {
+                            Text("Snapshot Cleanup")
+                                .font(.headline)
+                            Spacer()
+                            Button("Refresh") { state.refreshSnapshotSizes() }
+                                .controlSize(.small)
+                        }
+
+                        HStack(spacing: 8) {
+                            Text("Total:")
+                                .bold()
+                                .frame(width: 110, alignment: .leading)
+                            Text("\(state.snapshotSizes.totalCount) files, \(state.snapshotSizes.formatted(state.snapshotSizes.totalBytes))")
+                                .font(.system(.body, design: .monospaced))
+                            Spacer()
+                        }
+
+                        VStack(alignment: .leading, spacing: 8) {
+                            HStack(spacing: 12) {
+                                Button("Delete Editor.log snapshots") {
+                                    state.deleteEditorLogSnapshots()
+                                }
+                                .disabled(state.snapshotSizes.editorLogCount == 0)
+                                Text("≈ \(state.snapshotSizes.formatted(state.snapshotSizes.editorLogBytes)) (\(state.snapshotSizes.editorLogCount) files)")
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                                Spacer()
+                            }
+
+                            HStack(spacing: 12) {
+                                Button("Delete snapshots older than 7 days") {
+                                    state.deleteOldSnapshots()
+                                }
+                                .disabled(state.snapshotSizes.olderThan7DaysCount == 0)
+                                Text("≈ \(state.snapshotSizes.formatted(state.snapshotSizes.olderThan7DaysBytes)) (\(state.snapshotSizes.olderThan7DaysCount) files)")
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                                Spacer()
+                            }
+
+                            HStack(spacing: 12) {
+                                Button("Delete ALL snapshots") {
+                                    state.deleteAllSnapshots()
+                                }
+                                .buttonStyle(.borderedProminent)
+                                .tint(.red)
+                                .disabled(state.snapshotSizes.totalCount == 0)
+                                Text("≈ \(state.snapshotSizes.formatted(state.snapshotSizes.totalBytes)) (\(state.snapshotSizes.totalCount) files)")
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                                Spacer()
+                            }
+                        }
+
+                        if !state.lastSnapshotDeleteSummary.isEmpty {
+                            HStack(spacing: 4) {
+                                Image(systemName: "checkmark.circle.fill")
+                                    .foregroundColor(.green)
+                                Text(state.lastSnapshotDeleteSummary)
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                                Spacer()
+                            }
+                            .padding(.top, 4)
+                        }
+                    }
+                    .padding(12)
+                    .background(Color(NSColor.controlBackgroundColor))
+                    .cornerRadius(8)
                 }
                 .padding(16)
             }
@@ -265,6 +337,7 @@ struct SettingsWindow: View {
         .onAppear {
             if state.p4Env.user.isEmpty { state.refreshP4() }
             state.refreshInjector()
+            state.refreshSnapshotSizes()
         }
     }
 

@@ -30,6 +30,8 @@ final class AppState: ObservableObject {
     @Published var lastApplyResults: [InjectorResult] = []
     @Published var processList: String = ""
     @Published var updateStatus: UpdateStatus = .idle
+    @Published var snapshotSizes: SnapshotSizes = SnapshotSizes()
+    @Published var lastSnapshotDeleteSummary: String = ""
 
     @Published private(set) var busy: Set<BusyKind> = []
 
@@ -69,6 +71,7 @@ final class AppState: ObservableObject {
         self.p4Password = d.string(forKey: DefaultsKey.p4Password) ?? ""
         startBackgroundRefresh()
         checkForUpdates()
+        refreshSnapshotSizes()
     }
 
     func makeP4() -> P4Manager {
@@ -292,6 +295,43 @@ final class AppState: ObservableObject {
                     self.updateStatus = .installing
                     NSApplication.shared.terminate(nil)
                 }
+            }
+        }
+    }
+
+    func refreshSnapshotSizes() {
+        Task.detached(priority: .userInitiated) {
+            let sizes = SnapshotManager.computeSizes()
+            await MainActor.run {
+                self.snapshotSizes = sizes
+            }
+        }
+    }
+
+    func deleteAllSnapshots() {
+        runDelete { SnapshotManager.deleteAll() }
+    }
+
+    func deleteOldSnapshots() {
+        runDelete { SnapshotManager.deleteOlderThan(days: 7) }
+    }
+
+    func deleteEditorLogSnapshots() {
+        runDelete { SnapshotManager.deleteEditorLogsOnly() }
+    }
+
+    private func runDelete(_ op: @escaping () -> SnapshotDeleteResult) {
+        Task.detached(priority: .userInitiated) {
+            let result = op()
+            let sizes = SnapshotManager.computeSizes()
+            await MainActor.run {
+                let mb = Double(result.freedBytes) / 1024 / 1024
+                if let err = result.error {
+                    self.lastSnapshotDeleteSummary = "Deleted \(result.deletedCount) files (\(String(format: "%.1f", mb)) MB); last error: \(err)"
+                } else {
+                    self.lastSnapshotDeleteSummary = "Deleted \(result.deletedCount) files, freed \(String(format: "%.1f", mb)) MB"
+                }
+                self.snapshotSizes = sizes
             }
         }
     }
