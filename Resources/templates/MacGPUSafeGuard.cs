@@ -786,6 +786,11 @@ namespace Performance.MacGPU
             try { System.IO.File.Delete(System.IO.Path.Combine(guardDir, "in_playmode")); } catch { }
             try { System.IO.File.WriteAllText(System.IO.Path.Combine(guardDir, "playmode_state"), "editmode"); } catch { }
 
+            // Disable heavy RendererFeatures at Editor startup so SceneView
+            // and GameView don't overwhelm the GPU with SSGI/SSR/VolumetricClouds/etc.
+            // In-memory only (no SaveAssets) — changes are reversed on Editor restart.
+            AutoDisableHeavyRendererFeatures();
+
             EditorApplication.playModeStateChanged -= OnEditorPlayModeStateChanged;
             EditorApplication.playModeStateChanged += OnEditorPlayModeStateChanged;
         }
@@ -1127,6 +1132,73 @@ namespace Performance.MacGPU
             // Since Camera.main might not exist in Editor, skip runtime camera modifications here.
             // The safeguard script will apply them on Play.
             Debug.Log("[MacGPUSafeGuard] Camera settings (TAA/MSAA/HDR) will be applied at runtime on Play.");
+        }
+
+        // Called automatically on Editor startup. Uses direct asset path loading
+        // (bypasses URP asset GUID references) and applies in-memory only — no
+        // SaveAssets, so changes are reversed on Editor restart.
+        static void AutoDisableHeavyRendererFeatures()
+        {
+            try
+            {
+                string[] blacklist = {
+                    "ScreenSpaceGlobalIllumination", "ScreenSpaceReflection",
+                    "VolumetricClouds", "Volumetric Lighting",
+                    "HorizonBasedAmbientOcclusion", "Fur", "Ocean",
+                    "FastFourierTransform", "SubsurfaceScattering",
+                    "角色高精度阴影", "CloudShadow", "ParticleCloud",
+                    "GlobalVolumeCloud", "NepheleSky",
+                };
+
+                string[] rendererDataPaths = {
+                    "Assets/Settings/urp_renderer.asset",
+                    "Assets/Settings/urp_role_renderer.asset",
+                    "Assets/Settings/urp_ui_renderer.asset",
+                    "Assets/Settings/urp_renderer_for_ui_scene.asset",
+                };
+
+                int disabledCount = 0;
+                foreach (string path in rendererDataPaths)
+                {
+                    var rdAsset = AssetDatabase.LoadAssetAtPath<UnityEngine.Object>(path);
+                    if (rdAsset == null) continue;
+
+                    var rdSo = new SerializedObject(rdAsset);
+                    var featuresProp = rdSo.FindProperty("m_RendererFeatures");
+                    if (featuresProp == null || !featuresProp.isArray) continue;
+
+                    for (int j = 0; j < featuresProp.arraySize; j++)
+                    {
+                        var fe = featuresProp.GetArrayElementAtIndex(j);
+                        if (fe == null || fe.objectReferenceValue == null) continue;
+
+                        var fs = new SerializedObject(fe.objectReferenceValue);
+                        string fn = fs.FindProperty("m_Name")?.stringValue ?? "";
+                        if (string.IsNullOrEmpty(fn)) continue;
+
+                        foreach (string pattern in blacklist)
+                        {
+                            if (fn.IndexOf(pattern, StringComparison.OrdinalIgnoreCase) >= 0)
+                            {
+                                var ap = fs.FindProperty("m_Active");
+                                if (ap != null && ap.boolValue)
+                                {
+                                    ap.boolValue = false;
+                                    fs.ApplyModifiedProperties();
+                                    disabledCount++;
+                                }
+                                break;
+                            }
+                        }
+                    }
+                }
+
+                Debug.Log($"[MacGPUSafeGuard] Auto-disabled {disabledCount} heavy RendererFeature(s) (in-memory, restores on restart).");
+            }
+            catch (Exception ex)
+            {
+                Debug.LogWarning($"[MacGPUSafeGuard] AutoDisableHeavyRendererFeatures failed: {ex.Message}");
+            }
         }
 
         static void EditorApplyRendererFeatureBlacklist()
