@@ -57,7 +57,6 @@ namespace Performance.MacGPU
         private float _lastAutoReduceTime = -999f;
         private float _lastVSyncForceLogTime = -999f;
         private List<float> _frameTimeHistory = new List<float>(60);
-        private bool _rendererFeaturesDisabled;
 
         private const string C_PLAY_GUARD_PENDING_KEY = "MacGPUSafeGuard.PlayGuardPending";
         private static bool s_isGuardedPlay;
@@ -185,12 +184,6 @@ namespace Performance.MacGPU
                     Log("WARNING: Camera.main is null, camera settings will be applied in Start()");
                 }
 
-                // RendererFeature blacklist — disable heavy features on Mac
-                if (_urpAssetObj != null && cfg.disabledRendererFeatures != null
-                    && cfg.disabledRendererFeatures.Length > 0)
-                {
-                    DisableHeavyRendererFeatures(cfg);
-                }
 
                 _configApplied = true;
                 Log("All safe config applied successfully.");
@@ -216,14 +209,6 @@ namespace Performance.MacGPU
             }
 
             ApplyCameraSettings(config);
-
-            // Retry renderer feature disable
-            if (!_rendererFeaturesDisabled && _urpAssetObj != null
-                && config.disabledRendererFeatures != null
-                && config.disabledRendererFeatures.Length > 0)
-            {
-                DisableHeavyRendererFeatures(config);
-            }
         }
 
         void ApplyVSync(MacGPUConfig cfg)
@@ -526,116 +511,43 @@ namespace Performance.MacGPU
                 return;
             }
 
-            if (_urpAssetObj == null)
-            {
-                Log("WARNING: URP asset not resolved, skipping RendererFeature blacklist");
-                return;
-            }
-
-            var urpObj = _urpAssetObj as UnityEngine.Object;
-            if (urpObj == null)
-            {
-                Log("WARNING: URP asset is not a UnityEngine.Object");
-                return;
-            }
-
-            int disabledCount = 0;
-
-#if UNITY_EDITOR
-            // Primary: SerializedObject approach — uses Unity serialized names and works
-            // regardless of EcoEngine's C# property/field naming conventions.
-            var urpSo = new SerializedObject(urpObj);
-            var rendererDataListProp = urpSo.FindProperty("m_RendererDataList");
-
-            if (rendererDataListProp == null || !rendererDataListProp.isArray)
-            {
-                Log("WARNING: m_RendererDataList not found on URP asset via SerializedObject");
-            }
-            else
-            {
-                for (int i = 0; i < rendererDataListProp.arraySize; i++)
-                {
-                    var dataRef = rendererDataListProp.GetArrayElementAtIndex(i);
-                    if (dataRef == null || dataRef.objectReferenceValue == null)
-                        continue;
-
-                    var rdSo = new SerializedObject(dataRef.objectReferenceValue);
-                    var featuresProp = rdSo.FindProperty("m_RendererFeatures");
-                    if (featuresProp == null || !featuresProp.isArray)
-                        continue;
-
-                    for (int j = 0; j < featuresProp.arraySize; j++)
-                    {
-                        var featureElem = featuresProp.GetArrayElementAtIndex(j);
-                        if (featureElem == null || featureElem.objectReferenceValue == null)
-                            continue;
-
-                        var featureSo = new SerializedObject(featureElem.objectReferenceValue);
-                        var nameProp = featureSo.FindProperty("m_Name");
-                        string featureName = nameProp?.stringValue ?? "";
-
-                        if (string.IsNullOrEmpty(featureName))
-                            continue;
-
-                        foreach (string pattern in cfg.disabledRendererFeatures)
-                        {
-                            if (string.IsNullOrEmpty(pattern)) continue;
-                            if (featureName.IndexOf(pattern, StringComparison.OrdinalIgnoreCase) >= 0)
-                            {
-                                var activeProp = featureSo.FindProperty("m_Active");
-                                if (activeProp != null && activeProp.boolValue)
-                                {
-                                    activeProp.boolValue = false;
-                                    featureSo.ApplyModifiedProperties();
-                                    Log($"DISABLED: {featureName} (matched pattern: '{pattern}')");
-                                    disabledCount++;
-                                }
-                                break;
-                            }
-                        }
-                    }
-                }
-            }
-#else
-            // Player build: reflection approach — EcoEngine fork may use different property names
             object[] rendererDataList = GetRendererDataList();
             if (rendererDataList == null || rendererDataList.Length == 0)
             {
                 Log("WARNING: Could not resolve renderer data list from URP asset");
+                return;
             }
-            else
+
+            int disabledCount = 0;
+            foreach (var rendererData in rendererDataList)
             {
-                foreach (var rendererData in rendererDataList)
+                if (rendererData == null) continue;
+
+                var features = GetRendererFeatures(rendererData);
+                if (features == null) continue;
+
+                foreach (var feature in features)
                 {
-                    if (rendererData == null) continue;
+                    if (feature == null) continue;
 
-                    var features = GetRendererFeatures(rendererData);
-                    if (features == null) continue;
+                    string featureName = GetFeatureName(feature);
+                    if (string.IsNullOrEmpty(featureName)) continue;
 
-                    foreach (var feature in features)
+                    foreach (string pattern in cfg.disabledRendererFeatures)
                     {
-                        if (feature == null) continue;
-
-                        string featureName = GetFeatureName(feature);
-                        if (string.IsNullOrEmpty(featureName)) continue;
-
-                        foreach (string pattern in cfg.disabledRendererFeatures)
+                        if (string.IsNullOrEmpty(pattern)) continue;
+                        if (featureName.IndexOf(pattern, StringComparison.OrdinalIgnoreCase) >= 0)
                         {
-                            if (string.IsNullOrEmpty(pattern)) continue;
-                            if (featureName.IndexOf(pattern, StringComparison.OrdinalIgnoreCase) >= 0)
+                            if (SetFeatureActive(feature, false))
                             {
-                                if (SetFeatureActive(feature, false))
-                                {
-                                    Log($"DISABLED: {featureName} (matched pattern: '{pattern}')");
-                                    disabledCount++;
-                                }
-                                break;
+                                Log($"DISABLED: {featureName} (matched pattern: '{pattern}')");
+                                disabledCount++;
                             }
+                            break;
                         }
                     }
                 }
             }
-#endif
 
             Log($"RendererFeature blacklist: {disabledCount} feature(s) disabled.");
             _rendererFeaturesDisabled = true;
@@ -647,6 +559,7 @@ namespace Performance.MacGPU
 
             var type = _urpAssetObj.GetType();
 
+            // Try property first
             string[] candidateNames = { "m_RendererDataList", "rendererDataList" };
             foreach (var name in candidateNames)
             {
@@ -655,6 +568,7 @@ namespace Performance.MacGPU
                 {
                     object val = prop.GetValue(_urpAssetObj);
                     if (val is Array arr) return (object[])arr;
+                    // Might be List<>
                     if (val is System.Collections.IList list)
                     {
                         object[] result = new object[list.Count];
@@ -710,9 +624,11 @@ namespace Performance.MacGPU
         string GetFeatureName(object feature)
         {
             var type = feature.GetType();
+            // Try "name" property (many features inherit from ScriptableObject and have .name)
             string[] nameCandidates = { "name", "m_Name", "Name" };
             foreach (var candidate in nameCandidates)
             {
+                // Check ScriptableObject.name (inherited from UnityEngine.Object)
                 var prop = type.GetProperty(candidate, BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
                 if (prop != null && prop.CanRead && prop.PropertyType == typeof(string))
                 {
@@ -721,6 +637,7 @@ namespace Performance.MacGPU
                 }
             }
 
+            // Fallback: use type name
             return type.Name;
         }
 
@@ -735,7 +652,7 @@ namespace Performance.MacGPU
                 if (prop != null && prop.CanRead && prop.CanWrite && prop.PropertyType == typeof(bool))
                 {
                     bool current = (bool)prop.GetValue(feature);
-                    if (current == active) return false;
+                    if (current == active) return false; // already in target state
                     prop.SetValue(feature, active);
                     return true;
                 }
@@ -1035,31 +952,23 @@ namespace Performance.MacGPU
             if (Application.platform != RuntimePlatform.OSXEditor)
                 return;
 
-            EditorApplication.playModeStateChanged -= OnEditorPlayModeStateChanged;
-            EditorApplication.playModeStateChanged += OnEditorPlayModeStateChanged;
-
-            // Reset stale playmode flags left over from a previous kill/crash.
-            // If the last process was killed, EnteredEditMode never fired to clean up.
+            // Clean up stale playmode flags from a previous kill where
+            // EnteredEditMode never fired to clean up.
             var guardDir = System.IO.Path.Combine(
                 System.Environment.GetFolderPath(System.Environment.SpecialFolder.ApplicationData),
                 "MacGPUSafeGuard");
-            var playmodeFlag = System.IO.Path.Combine(guardDir, "in_playmode");
-            var playmodeStatePath = System.IO.Path.Combine(guardDir, "playmode_state");
-            try { System.IO.File.Delete(playmodeFlag); } catch { }
-            try { System.IO.File.WriteAllText(playmodeStatePath, "editmode"); } catch { }
+            try { System.IO.File.Delete(System.IO.Path.Combine(guardDir, "in_playmode")); } catch { }
+            try { System.IO.File.WriteAllText(System.IO.Path.Combine(guardDir, "playmode_state"), "editmode"); } catch { }
 
-            // Run immediately on assembly reload so features are disabled
-            // BEFORE the user even clicks Play.
-            EditorPreApplyRendererFeatureBlacklist();
+            EditorApplication.playModeStateChanged -= OnEditorPlayModeStateChanged;
+            EditorApplication.playModeStateChanged += OnEditorPlayModeStateChanged;
         }
 
         private static void OnEditorPlayModeStateChanged(PlayModeStateChange change)
         {
-            var guardDir = System.IO.Path.Combine(
+            var flagPath = System.IO.Path.Combine(
                 System.Environment.GetFolderPath(System.Environment.SpecialFolder.ApplicationData),
-                "MacGPUSafeGuard");
-            var flagPath = System.IO.Path.Combine(guardDir, "in_playmode");
-            var playmodeStatePath = System.IO.Path.Combine(guardDir, "playmode_state");
+                "MacGPUSafeGuard", "in_playmode");
             switch (change)
             {
                 case PlayModeStateChange.ExitingEditMode:
@@ -1067,9 +976,7 @@ namespace Performance.MacGPU
                     s_quarantinedClothInstanceIds.Clear();
                     UnregisterGuardedPlayHooks();
                     try { System.IO.File.WriteAllText(flagPath, "1"); } catch { }
-                    try { System.IO.File.WriteAllText(playmodeStatePath, "playmode"); } catch { }
                     StartHeartbeat();
-                    EditorPreApplyRendererFeatureBlacklist();
                     Debug.Log("[MacGPUSafeGuard] macOS 下普通 Play 默认走保护路径。");
                     break;
 
@@ -1080,7 +987,6 @@ namespace Performance.MacGPU
                     s_quarantinedClothInstanceIds.Clear();
                     UnregisterGuardedPlayHooks();
                     try { System.IO.File.Delete(flagPath); } catch { }
-                    try { System.IO.File.WriteAllText(playmodeStatePath, "editmode"); } catch { }
                     StopHeartbeat();
                     break;
             }
@@ -1285,7 +1191,6 @@ namespace Performance.MacGPU
                 "- Anti-Aliasing: OFF (TAA disabled)\n" +
                 "- MSAA: OFF\n" +
                 "- HDR: OFF\n" +
-                "- Heavy RendererFeatures: DISABLED (SSGI/SSR/VolumetricClouds/etc)\n" +
                 "\nPlease re-enter Play Mode to test.",
                 "OK");
         }
@@ -1396,135 +1301,6 @@ namespace Performance.MacGPU
             // Since Camera.main might not exist in Editor, skip runtime camera modifications here.
             // The safeguard script will apply them on Play.
             Debug.Log("[MacGPUSafeGuard] Camera settings (TAA/MSAA/HDR) will be applied at runtime on Play.");
-        }
-
-        // Called automatically before entering Play Mode to disable heavy features
-        // BEFORE shader compilation begins. Uses SerializedObject (no SaveAssets).
-        static void EditorPreApplyRendererFeatureBlacklist()
-        {
-            if (Application.platform != RuntimePlatform.OSXEditor) return;
-
-            try
-            {
-                string[] blacklist = {
-                    "ScreenSpaceGlobalIllumination",
-                    "ScreenSpaceReflection",
-                    "VolumetricClouds",
-                    "Volumetric Lighting",
-                    "HorizonBasedAmbientOcclusion",
-                    "Fur",
-                    "Ocean",
-                    "FastFourierTransform",
-                    "SubsurfaceScattering",
-                    "角色高精度阴影",
-                    "CloudShadow",
-                    "ParticleCloud",
-                    "GlobalVolumeCloud",
-                    "NepheleSky",
-                };
-
-                int disabledCount = 0;
-
-                // Primary: load renderer data assets directly by known paths.
-                // This avoids the timing issue where the URP asset's m_RendererDataList
-                // GUID references haven't been resolved yet at ExitingEditMode.
-                string[] rendererDataPaths = {
-                    "Assets/Settings/urp_renderer.asset",
-                    "Assets/Settings/urp_role_renderer.asset",
-                    "Assets/Settings/urp_ui_renderer.asset",
-                    "Assets/Settings/urp_renderer_for_ui_scene.asset",
-                };
-
-                foreach (string path in rendererDataPaths)
-                {
-                    var rdAsset = AssetDatabase.LoadAssetAtPath<UnityEngine.Object>(path);
-                    if (rdAsset == null) continue;
-
-                    var rdSo = new SerializedObject(rdAsset);
-                    var featuresProp = rdSo.FindProperty("m_RendererFeatures");
-                    if (featuresProp == null || !featuresProp.isArray) continue;
-
-                    for (int j = 0; j < featuresProp.arraySize; j++)
-                    {
-                        var featureElem = featuresProp.GetArrayElementAtIndex(j);
-                        if (featureElem == null || featureElem.objectReferenceValue == null) continue;
-
-                        var featureSo = new SerializedObject(featureElem.objectReferenceValue);
-                        var nameProp = featureSo.FindProperty("m_Name");
-                        string featureName = nameProp?.stringValue ?? "";
-                        if (string.IsNullOrEmpty(featureName)) continue;
-
-                        foreach (string pattern in blacklist)
-                        {
-                            if (featureName.IndexOf(pattern, StringComparison.OrdinalIgnoreCase) >= 0)
-                            {
-                                var activeProp = featureSo.FindProperty("m_Active");
-                                if (activeProp != null && activeProp.boolValue)
-                                {
-                                    activeProp.boolValue = false;
-                                    featureSo.ApplyModifiedProperties();
-                                    disabledCount++;
-                                    Debug.Log($"[MacGPUSafeGuard] Pre-Play disabled: {featureName}");
-                                }
-                                break;
-                            }
-                        }
-                    }
-                }
-
-                // Fallback: traverse URP asset's m_RendererDataList (covers any renderers
-                // not in the known path list above).
-                if (disabledCount == 0)
-                {
-                    var urp = QualitySettings.renderPipeline ?? LoadEditorGraphicsSettingsPipelineAsset();
-                    if (urp != null)
-                    {
-                        var urpObj = (UnityEngine.Object)urp;
-                        var urpSo = new SerializedObject(urpObj);
-                        var rendererDataListProp = urpSo.FindProperty("m_RendererDataList");
-                        if (rendererDataListProp != null && rendererDataListProp.isArray)
-                        {
-                            for (int i = 0; i < rendererDataListProp.arraySize; i++)
-                            {
-                                var dataRef = rendererDataListProp.GetArrayElementAtIndex(i);
-                                if (dataRef == null || dataRef.objectReferenceValue == null) continue;
-                                var rdSo = new SerializedObject(dataRef.objectReferenceValue);
-                                var fp = rdSo.FindProperty("m_RendererFeatures");
-                                if (fp == null || !fp.isArray) continue;
-                                for (int j = 0; j < fp.arraySize; j++)
-                                {
-                                    var fe = fp.GetArrayElementAtIndex(j);
-                                    if (fe == null || fe.objectReferenceValue == null) continue;
-                                    var fs = new SerializedObject(fe.objectReferenceValue);
-                                    string fn = fs.FindProperty("m_Name")?.stringValue ?? "";
-                                    if (string.IsNullOrEmpty(fn)) continue;
-                                    foreach (string p in blacklist)
-                                    {
-                                        if (fn.IndexOf(p, StringComparison.OrdinalIgnoreCase) >= 0)
-                                        {
-                                            var ap = fs.FindProperty("m_Active");
-                                            if (ap != null && ap.boolValue)
-                                            {
-                                                ap.boolValue = false;
-                                                fs.ApplyModifiedProperties();
-                                                disabledCount++;
-                                                Debug.Log($"[MacGPUSafeGuard] Pre-Play disabled (fallback): {fn}");
-                                            }
-                                            break;
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-
-                Debug.Log($"[MacGPUSafeGuard] Pre-Play: {disabledCount} heavy RendererFeature(s) disabled. (blacklist={blacklist.Length})");
-            }
-            catch (Exception ex)
-            {
-                Debug.LogError($"[MacGPUSafeGuard] EditorPreApplyRendererFeatureBlacklist failed: {ex.Message}");
-            }
         }
 
         static void EditorApplyRendererFeatureBlacklist()

@@ -71,35 +71,6 @@ namespace Performance.MacGPU
                  "Mac Metal 上根据实际项目需求谨慎开启。")]
         public bool allowHDR = false;
 
-        [Header("重型渲染特效屏蔽 (Heavy Renderer Feature Blacklist)")]
-        [Tooltip("Mac 平台自动禁用的 RendererFeature（名称部分匹配，不区分大小写）。\n" +
-                 "默认屏蔽项目中最重的 Metal GPU 负担项：\n" +
-                 "  SSGI(屏幕空间全局光照) ≈20-30% GPU\n" +
-                 "  SSR(屏幕空间反射) ≈10-15% GPU\n" +
-                 "  体积云系统 ≈15-25% GPU\n" +
-                 "  体积光照 ≈10-15% GPU\n" +
-                 "  HBAO(水平基准环境遮蔽) ≈5-10% GPU\n" +
-                 "  海洋+FFT ≈10-15% GPU\n" +
-                 "  毛发渲染 ≈5-10% GPU\n" +
-                 "  次表面散射(SSS) ≈3-5% GPU\n" +
-                 "  高精度阴影 ≈2-5% GPU")]
-        public string[] disabledRendererFeatures = new string[] {
-            "ScreenSpaceGlobalIllumination",
-            "ScreenSpaceReflection",
-            "VolumetricClouds",
-            "Volumetric Lighting",
-            "HorizonBasedAmbientOcclusion",
-            "Fur",
-            "Ocean",
-            "FastFourierTransform",
-            "SubsurfaceScattering",
-            "角色高精度阴影",
-            "CloudShadow",
-            "ParticleCloud",
-            "GlobalVolumeCloud",
-            "NepheleSky",
-        };
-
         [Header("监控与保护")]
         [Tooltip("启用 GPU 帧时间监控。当连续 N 帧超过阈值时自动降低画质。")]
         public bool enableFrameTimeMonitor = true;

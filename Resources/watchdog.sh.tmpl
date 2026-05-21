@@ -193,6 +193,7 @@ REPEAT_COUNT=${REPEAT_COUNT:-0}
 STAGNANT_COUNT=${STAGNANT_COUNT:-0}
 LAST_LOG_SIG=${LAST_LOG_SIG:-unknown}
 LAST_CPU_TIME=${LAST_CPU_TIME:-}
+LAST_CPU_TIME_AT_STAGNANT_START=${LAST_CPU_TIME_AT_STAGNANT_START:-}
 EDIT_SKIP_LOGGED=${EDIT_SKIP_LOGGED:-0}
 EOF
 }
@@ -204,6 +205,7 @@ load_state() {
   STAGNANT_COUNT=0
   LAST_LOG_SIG="unknown"
   LAST_CPU_TIME=""
+  LAST_CPU_TIME_AT_STAGNANT_START=""
   EDIT_SKIP_LOGGED=0
   if [ -f "$STATE_FILE" ]; then
     # shellcheck disable=SC1090
@@ -398,7 +400,9 @@ monitor_loop() {
       continue
     fi
 
-    # Play Mode editor-log stagnant kill (covers logic dead-loops that don't freeze render stack)
+    # Play Mode editor-log stagnant kill (covers logic dead-loops that don't freeze render stack).
+    # ALSO requires CPU time stagnant: if CPU is advancing, the process is busy working (shader
+    # compile / rendering / asset import) — killing it would limit performance for no reason.
     if [ "$STAGNANT_COUNT" -ge "$STAGNANT_THRESHOLD" ]; then
       if ! is_playmode_active; then
         if [ "${EDIT_SKIP_LOGGED:-0}" != "1" ]; then
@@ -411,7 +415,15 @@ monitor_loop() {
         sleep "$POLL_SECONDS"
         continue
       fi
-      snapshot_and_kill "$pid" "editor log stagnant for $((STAGNANT_COUNT * POLL_SECONDS))s in play mode" "$tmp_sample"
+      # Only kill if CPU time has NOT advanced during the stagnant period.
+      # If the process is burning CPU, it's working — let it run.
+      if [ -n "$current_cpu_time" ] && [ "$current_cpu_time" = "$LAST_CPU_TIME_AT_STAGNANT_START" ]; then
+        snapshot_and_kill "$pid" "editor log stagnant for $((STAGNANT_COUNT * POLL_SECONDS))s in play mode (cpu stagnant)" "$tmp_sample"
+      else
+        log "log stagnant for $((STAGNANT_COUNT * POLL_SECONDS))s but cpu still advancing ($LAST_CPU_TIME_AT_STAGNANT_START -> $current_cpu_time), skipping kill"
+        STAGNANT_COUNT=0
+        LAST_LOG_SIG="$current_log_sig"
+      fi
       rm -f "$tmp_sample"
       LAST_PID=""
       LAST_SIG_B64=""
@@ -419,9 +431,15 @@ monitor_loop() {
       STAGNANT_COUNT=0
       LAST_LOG_SIG="unknown"
       LAST_CPU_TIME=""
+      LAST_CPU_TIME_AT_STAGNANT_START=""
       write_state
       sleep "$POLL_SECONDS"
       continue
+    fi
+
+    # Track CPU time when log first becomes stagnant, for use in the kill check above
+    if [ "$STAGNANT_COUNT" -eq 1 ] && [ -z "${LAST_CPU_TIME_AT_STAGNANT_START:-}" ]; then
+      LAST_CPU_TIME_AT_STAGNANT_START="$current_cpu_time"
     fi
 
     # C# heartbeat dead-loop detection (covers logic dead-loops that don't freeze render stack or log)
