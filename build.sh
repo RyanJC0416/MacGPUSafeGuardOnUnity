@@ -49,17 +49,35 @@ cat > "$APP/Contents/Info.plist" <<EOF
     <key>CFBundleDisplayName</key><string>GpuSafeGuard</string>
     <key>CFBundlePackageType</key><string>APPL</string>
     <key>CFBundleVersion</key><string>1</string>
-    <key>CFBundleShortVersionString</key><string>1.6.5</string>
+    <key>CFBundleShortVersionString</key><string>1.6.6</string>
     <key>CFBundleIconFile</key><string>AppIcon</string>
     <key>LSMinimumSystemVersion</key><string>15.0</string>
     <key>NSPrincipalClass</key><string>NSApplication</string>
     <key>NSHighResolutionCapable</key><true/>
     <key>LSApplicationCategoryType</key><string>public.app-category.utilities</string>
+    <key>NSRemovableVolumesUsageDescription</key><string>GpuSafeGuard 在扫描 Unity 项目和快照目录时可能遍历到挂载卷,需要授权读取以正常清理快照。</string>
+    <key>NSDesktopFolderUsageDescription</key><string>GpuSafeGuard 可能需要读取桌面上的 Unity 项目文件。</string>
+    <key>NSDocumentsFolderUsageDescription</key><string>GpuSafeGuard 可能需要读取文档目录中的 Unity 项目文件。</string>
+    <key>NSDownloadsFolderUsageDescription</key><string>GpuSafeGuard 可能需要读取下载目录中的更新包。</string>
+</dict>
+</plist>
+EOF
+
+echo "Writing entitlements…"
+cat > "$APP/Contents/Resources/entitlements.plist" <<EOF
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>com.apple.security.files.user-selected.read-write</key><true/>
+    <key>com.apple.security.files.bookmarks.app-scope</key><true/>
+    <key>com.apple.security.network.client</key><true/>
 </dict>
 </plist>
 EOF
 
 echo "Ad-hoc signing…"
-codesign --force --sign - "$APP" 2>/dev/null || true
+codesign --force --sign - --entitlements "$APP/Contents/Resources/entitlements.plist" "$APP" 2>/dev/null || \
+  codesign --force --sign - "$APP" 2>/dev/null || true
 
 echo "Built: $APP ($(du -sh "$APP" | cut -f1))"
