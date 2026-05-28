@@ -329,6 +329,54 @@ struct SettingsWindow: View {
                     .padding(12)
                     .background(Color(NSColor.controlBackgroundColor))
                     .cornerRadius(8)
+
+                    // Unity Tmp Cleanup
+                    VStack(alignment: .leading, spacing: 12) {
+                        HStack {
+                            Text("Unity Tmp Cleanup")
+                                .font(.headline)
+                            Spacer()
+                            Button("Refresh") { state.refreshUnityTmpSizes() }
+                                .controlSize(.small)
+                        }
+
+                        HStack(spacing: 8) {
+                            Text("Total:")
+                                .bold()
+                                .frame(width: 110, alignment: .leading)
+                            Text("\(state.unityTmpSizes.totalCount) files, \(state.unityTmpSizes.formatted(state.unityTmpSizes.totalBytes))")
+                                .font(.system(.body, design: .monospaced))
+                            Spacer()
+                        }
+
+                        HStack(spacing: 12) {
+                            Button("Clean Unity tmp files") {
+                                state.cleanUnityTmpFiles()
+                            }
+                            .buttonStyle(.borderedProminent)
+                            .tint(.red)
+                            .disabled(state.unityTmpSizes.totalCount == 0)
+                            Text("≈ \(state.unityTmpSizes.formatted(state.unityTmpSizes.totalBytes)) (\(state.unityTmpSizes.totalCount) items)")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                            Spacer()
+                        }
+
+                        if !state.lastUnityTmpDeleteSummary.isEmpty {
+                            HStack(spacing: 4) {
+                                Image(systemName: "checkmark.circle.fill")
+                                    .foregroundColor(.green)
+                                Text(state.lastUnityTmpDeleteSummary)
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                                Spacer()
+                            }
+                            .padding(.top, 4)
+                        }
+                    }
+                    .padding(12)
+                    .background(Color(NSColor.controlBackgroundColor))
+                    .cornerRadius(8)
                 }
                 .padding(16)
             }
@@ -338,6 +386,7 @@ struct SettingsWindow: View {
             if state.p4Env.user.isEmpty { state.refreshP4() }
             state.refreshInjector()
             state.refreshSnapshotSizes()
+            state.refreshUnityTmpSizes()
         }
     }
 

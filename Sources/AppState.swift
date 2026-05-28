@@ -32,6 +32,8 @@ final class AppState: ObservableObject {
     @Published var updateStatus: UpdateStatus = .idle
     @Published var snapshotSizes: SnapshotSizes = SnapshotSizes()
     @Published var lastSnapshotDeleteSummary: String = ""
+    @Published var unityTmpSizes: UnityTmpSizes = UnityTmpSizes()
+    @Published var lastUnityTmpDeleteSummary: String = ""
 
     @Published private(set) var busy: Set<BusyKind> = []
 
@@ -318,6 +320,31 @@ final class AppState: ObservableObject {
 
     func deleteSnapshotsOlderThan3Days() {
         runDelete { SnapshotManager.deleteOlderThan(days: 3) }
+    }
+
+    func refreshUnityTmpSizes() {
+        Task.detached(priority: .userInitiated) {
+            let sizes = UnityTmpCleaner.computeSizes()
+            await MainActor.run {
+                self.unityTmpSizes = sizes
+            }
+        }
+    }
+
+    func cleanUnityTmpFiles() {
+        Task.detached(priority: .userInitiated) {
+            let result = UnityTmpCleaner.clean()
+            let sizes = UnityTmpCleaner.computeSizes()
+            await MainActor.run {
+                let mb = Double(result.freedBytes) / 1024 / 1024
+                if let err = result.error {
+                    self.lastUnityTmpDeleteSummary = "Deleted \(result.deletedCount) files (\(String(format: "%.1f", mb)) MB); last error: \(err)"
+                } else {
+                    self.lastUnityTmpDeleteSummary = "Deleted \(result.deletedCount) files, freed \(String(format: "%.1f", mb)) MB"
+                }
+                self.unityTmpSizes = sizes
+            }
+        }
     }
 
     private func runDelete(_ op: @escaping () -> SnapshotDeleteResult) {

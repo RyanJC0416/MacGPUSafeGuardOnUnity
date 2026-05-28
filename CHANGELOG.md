@@ -1,5 +1,23 @@
 # MacGPUSafeGuard Changelog
 
+## v1.7.0 - 2026-05-28 - Unity Tmp Cleanup
+
+### 新增功能
+
+#### 1. Unity Tmp 文件清理 (Settings 窗口)
+- 新增 **Unity Tmp Cleanup** 面板，位于 Settings 窗口 Snapshot Cleanup 下方
+- 扫描 `/private/tmp/Unity_*.sample.txt` 和 `unity_console_mirror.log`
+- 显示文件数量和总大小
+- 一键清理所有 Unity 临时采样文件
+- 解决 Unity Editor 长期运行后 `/private/tmp` 堆积数十 GB 的问题
+
+### 实现
+- 新增 `UnityTmpCleaner.swift`，参照 `SnapshotManager` 模式实现
+- 在 `AppState` 中添加 `unityTmpSizes` 和 `lastUnityTmpDeleteSummary` 状态
+- 在 `SettingsWindow` 中添加清理 UI 面板
+
+---
+
 ## v1.5.1 - 2026-05-20 - Watchdog 根因分类增强
 
 ### 背景
