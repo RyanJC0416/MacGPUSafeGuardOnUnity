@@ -1,306 +1,177 @@
-# Mac GPU SafeGuard
+# GpuSafeGuard (Mac GPU SafeGuard)
 
-Unity Mac PlayMode 稳定性保护工具,用于防止 Unity Editor 在 macOS 上因 GPU 压力过高、渲染管线切换异常等问题导致的卡死和崩溃。
+macOS 上的 Unity Editor 稳定性工具集：**PlayMode GPU 保护**、**SceneView 修复（SceneGuard）**、**卡死监控 Watchdog**、**进程终止与诊断**。
 
-## 核心功能
+面向 EcoEngine URP / TCRender 项目在 Mac 上常见的：Play 卡死、Scene 窗口黑屏/无贴图、GPU 压力过高等问题。
 
-### 1. Unity Freeze Watchdog (卡死监控)
-- **心跳监控**: 通过 Unity 内嵌的 MacGPUSafeGuard.cs 定期更新心跳文件
-- **卡死检测**: 外部 `unity_freeze_watchdog.sh` 监控心跳超时(默认 12 秒)
-- **自动恢复**: 检测到卡死后自动保存快照并终止 Unity,保护现场
-- **快照记录**: 完整记录进程状态、堆栈、Unity 日志等诊断信息
-
-### 2. Manual Kill Script (手动终止)
-- **快速清理**: `kill-unity.sh` 提供高性能的 Unity 进程终止能力
-- **异步快照**: 后台保存诊断快照,不阻塞主流程 (0.4 秒完成)
-- **极速模式**: `--no-snapshot` 参数跳过快照,立即终止 (0.38 秒)
-- **智能识别**: 自动区分 Unity Editor 和 Unity Hub 进程
-- **完整清理**: 递归终止所有子进程(Licensing、PackageManager、ShaderCompiler 等)
-
-### 3. 进程快照与诊断
-- **sample 采样**: 捕获进程堆栈信息(可配置时长)
-- **日志分析**: 自动提取 MacGPUSafeGuard 标记、ShadowCache 错误、崩溃跳过绘制等关键信息
-- **心跳分析**: 记录最后心跳时间与当前时间差,判断卡死时长
-- **编译状态**: 检测 Unity 是否处于编译状态(compiling flag)
-
-## 快速开始
-
-### 安装
-
-```bash
-# 克隆仓库
-git clone <repo-url> mac-gpu-safeguard
-cd mac-gpu-safeguard
-
-# 构建 macOS App
-bash build.sh
-
-# ⚠️ 重要：将 App 移动到 /Applications/ 以启用自动更新
-cp -R GpuSafeGuard.app /Applications/
-
-# 或手动编译
-swiftc -o GpuSafeGuard.app/Contents/MacOS/GpuSafeGuard \
-    Sources/*.swift \
-    -framework Cocoa
-```
-
-> **注意**: 由于 macOS App Translocation 机制，从其他位置运行的 App 无法自动更新。请确保将 `GpuSafeGuard.app` 移动到 `/Applications/` 目录后再使用。
-
-### 使用 Watchdog 自动监控
-
-```bash
-# 启动监控(默认 12 秒超时)
-bash unity_freeze_watchdog.sh --start
-
-# 自定义超时(20 秒)
-bash unity_freeze_watchdog.sh --start 20
-
-# 停止监控
-bash unity_freeze_watchdog.sh --stop
-
-# 查看状态
-bash unity_freeze_watchdog.sh --status
-```
-
-**Unity 内嵌心跳**(需在 Unity 项目中添加):
-```csharp
-// 在 Unity Editor 初始化时启动心跳
-#if UNITY_EDITOR_OSX
-MacGPUSafeGuard.StartHeartbeat();
-#endif
-```
-
-### 手动终止 Unity 进程
-
-```bash
-# 默认模式:终止 Editor,保留 Hub,异步保存快照(推荐)
-bash kill-unity.sh
-
-# 终止 Editor + Hub,异步快照
-bash kill-unity.sh --all
-
-# 极速模式:跳过快照,立即终止(最快 0.38 秒)
-bash kill-unity.sh --no-snapshot --all
-
-# 仅终止 Unity Hub
-bash kill-unity.sh --hub
-
-# 列出所有 Unity 进程(不终止)
-bash kill-unity.sh --list
-```
-
-**性能对比**:
-- 默认模式(异步快照): **0.4 秒** (vs 旧版 5-6 秒)
-- 极速模式(跳过快照): **0.38 秒**
-
-## 配置与定制
-
-### Watchdog 配置
-
-编辑 `unity_freeze_watchdog.sh` 顶部变量:
-
-```bash
-HEARTBEAT_PATH="${HOME}/Library/Application Support/MacGPUSafeGuard/heartbeat"
-TIMEOUT_SECONDS=12  # 心跳超时时间
-CHECK_INTERVAL=3    # 检查间隔
-```
-
-### Kill Script 性能调优
-
-编辑 `kill-unity.sh` 顶部变量:
-
-```bash
-SAMPLE_DURATION=1       # sample 采样时长(秒)
-LOG_TAIL_LINES=10000    # 日志 grep 范围(行)
-SKIP_SNAPSHOT=1         # 设为 1 跳过快照
-```
-
-或使用环境变量:
-```bash
-SKIP_SNAPSHOT=1 bash kill-unity.sh --all
-```
-
-## 快照目录结构
-
-```
-~/Library/Application Support/MacGPUSafeGuard/
-├── snapshots/
-│   ├── Editor_20260515_202439/
-│   │   ├── Editor.log          # Unity 日志副本
-│   │   ├── sample.txt          # 进程堆栈采样
-│   │   └── summary.txt         # 诊断摘要
-│   └── Hub_20260515_203012/
-├── watchdog/
-│   └── watchdog.log            # Watchdog 运行日志
-├── heartbeat                   # Unity 心跳文件(时间戳)
-└── compiling                   # Unity 编译标记文件
-```
-
-## 诊断快照内容
-
-每次终止时保存的 `summary.txt` 包含:
-
-- **时间戳**: 终止时刻
-- **进程信息**: PID、父进程、状态、CPU 占用、运行时长
-- **心跳分析**: 最后心跳时间、超时时长
-- **编译状态**: 是否处于编译中
-- **关键日志**:
-  - `[MacGPUSafeGuard]` 标记的所有日志
-  - `ShadowCache out of range` 错误
-  - `Skipping draw calls to avoid crashing` 崩溃保护
-  - `ComputeBuffer none provided` 空缓冲区错误
-
-## 与 Unity 项目集成
-
-### MacGPUSafeGuard.cs (Unity 端)
-
-```csharp
-#if UNITY_EDITOR_OSX
-using System;
-using System.IO;
-using UnityEditor;
-
-public static class MacGPUSafeGuard
-{
-    private static string heartbeatPath = Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.Personal),
-        "Library/Application Support/MacGPUSafeGuard/heartbeat"
-    );
-
-    [InitializeOnLoadMethod]
-    public static void StartHeartbeat()
-    {
-        Directory.CreateDirectory(Path.GetDirectoryName(heartbeatPath));
-        EditorApplication.update += UpdateHeartbeat;
-    }
-
-    private static void UpdateHeartbeat()
-    {
-        try
-        {
-            File.WriteAllText(heartbeatPath, DateTimeOffset.UtcNow.ToUnixTimeSeconds().ToString());
-        }
-        catch { }
-    }
-}
-#endif
-```
-
-### 编译状态标记(可选)
-
-```csharp
-// 在编译开始时创建标记
-AssetDatabase.importPackageStarted += (packageName) => {
-    File.WriteAllText(compilingPath, "1");
-};
-
-// 编译完成时删除标记
-CompilationPipeline.compilationFinished += (obj) => {
-    if (File.Exists(compilingPath)) File.Delete(compilingPath);
-};
-```
-
-## 命令行参考
-
-### kill-unity.sh
-
-```bash
-Usage: kill-unity.sh [options]
-
-Options:
-  -h, --help           显示帮助信息
-  -l, --list           仅列出进程,不终止
-  -e, --editor         终止 Editor,保留 Hub (默认)
-  -a, --all            终止 Editor + Hub
-  --hub                仅终止 Unity Hub
-  --no-snapshot        跳过快照保存,极速终止
-
-Environment:
-  SKIP_SNAPSHOT=1      跳过快照(同 --no-snapshot)
-  SAMPLE_DURATION=N    设置 sample 采样时长(秒)
-  LOG_TAIL_LINES=N     设置日志 grep 范围(行)
-```
-
-### unity_freeze_watchdog.sh
-
-```bash
-Usage: unity_freeze_watchdog.sh {--start [timeout]|--stop|--status}
-
-Commands:
-  --start [N]    启动监控,可选超时秒数(默认 12)
-  --stop         停止监控
-  --status       查看监控状态
-```
-
-## 版本历史
-
-### v1.4.0 (2026-05-15)
-- ✨ **性能优化**: kill-unity.sh 速度提升 12-15x (0.4 秒 vs 5-6 秒)
-  - 异步快照保存,不阻塞主流程
-  - 减少 sample 采样时长 (5s → 1s)
-  - 限制日志 grep 范围 (全文 → 最后 10000 行)
-- ✨ **新增极速模式**: `--no-snapshot` 参数,0.38 秒完成终止
-- 🐛 **修复**: `--no-snapshot` 参数解析 bug
-
-### v1.3.2 (之前版本)
-- Unity Freeze Watchdog 基础实现
-- 快照保存与诊断功能
-- Manual kill script 基础版本
-
-## 使用场景
-
-### 场景 1: PlayMode 卡死自动恢复
-1. Unity 项目集成 `MacGPUSafeGuard.cs` 心跳
-2. 启动 watchdog: `bash unity_freeze_watchdog.sh --start`
-3. 进入 PlayMode 测试
-4. 若卡死超过 12 秒,watchdog 自动保存快照并终止 Unity
-5. 查看快照诊断原因: `~/Library/Application Support/MacGPUSafeGuard/snapshots/`
-
-### 场景 2: Unity Hub 进程残留清理
-```bash
-# Unity Hub 显示"项目已打开",但实际没有 Editor 运行
-bash kill-unity.sh --all
-
-# 验证清理完成
-bash kill-unity.sh --list
-```
-
-### 场景 3: 紧急终止(极速)
-```bash
-# Unity Editor 严重卡死,需要立即终止
-bash kill-unity.sh --no-snapshot
-
-# 或批量清理多个 Unity 实例
-SKIP_SNAPSHOT=1 bash kill-unity.sh --all
-```
-
-## 已知问题
-
-1. **僵尸进程残留**: 某些极端卡死场景下,Unity 子进程可能进入僵尸状态(`?E`/`?Es`),需重启系统清理。但这不影响新 Unity 启动。
-
-2. **Watchdog 误杀**: 若 Unity 执行长时间阻塞操作(如大型场景加载),可能触发误杀。建议调整超时时间或在关键操作前临时停止 watchdog。
-
-3. **权限问题**: 首次运行可能需要授予脚本执行权限:
-   ```bash
-   chmod +x kill-unity.sh unity_freeze_watchdog.sh
-   ```
-
-## 许可证
-
-MIT License - 详见项目根目录 LICENSE 文件
-
-## 贡献
-
-欢迎提交 Issue 和 Pull Request!
-
-## 相关文档
-
-- [CHANGELOG.md](CHANGELOG.md) - 详细变更历史
-- [USAGE.md](USAGE.md) - kill-unity.sh 详细使用指南
-- [unity_freeze_log_20260515.md](../docs/unity_freeze_log_20260515.md) - 实际卡死案例分析
+**当前版本**: v1.8.3 · [Releases](https://github.com/RyanJC0416/MacGPUSafeGuardOnUnity/releases) · 详细变更见 [CHANGELOG.md](CHANGELOG.md)
 
 ---
 
-**项目状态**: ✅ 生产就绪  
-**测试环境**: macOS Sequoia 15.0+, Unity 2022.3+  
-**维护者**: Ryan Ji
+## 核心功能
+
+### 1. GpuSafeGuard.app（图形界面）
+
+- **Watchdog**：监控 Unity 心跳，超时自动快照并终止 Editor
+- **Kill Tools**：手动终止 Editor / Hub，可选保存诊断快照
+- **Settings → P4 / Templates**：三条独立 Apply 通道，一键写入 Unity 工程并 `p4 edit/add`
+- **Check for Updates**：从 GitHub Releases 自动更新（App 须放在 `/Applications/`）
+
+### 2. Mac GPU Safe Guard（运行时 Play 保护）
+
+通过 Settings **Apply Mac GPU Safe Guard** 注入：
+
+| 文件 | 作用 |
+|------|------|
+| `MacGPUSafeGuard.cs` | PlayMode GPU 降级、心跳、MagicaCloth 隔离、RendererFeature 黑名单等 |
+| `MacGPUConfig.cs` | 可配置 ScriptableObject |
+
+> 不再修改 `SetURPSettings.cs`；URP 切换维持项目 depot 原版。
+
+### 3. SceneGuard（SceneView 修复）
+
+Mac Editor SceneView 在 Metal/URP 下易出现黑屏或 TCRender 不显示。SceneGuard 在 `endCameraRendering` 中 **clear → 天空 → 原材质 DrawRenderers → 水体占位 → Gizmos → Submit**。
+
+**Apply SceneGuard** 注入核心文件（FallbackRenderer、lit/skybox/water shader、EcoHooks 等）。
+
+**天空盒 fallback（v1.8.3+）**：不再使用硬编码渐变色，绘制前按优先级采样：
+
+1. `RenderSettings.skybox`
+2. URP `NepheleSky` 关联材质（`Skybox.mat`、`comm_sky_base` 等）
+3. `RenderSettings` 环境光（Sky / Equator）
+
+从材质读取 `_SkyTint`、`_GroundColor`、`_Exposure` 等，尽量贴近 Game 天空观感（双色渐变近似，非完整 Nephele 大气管线）。
+
+Unity 菜单（Mac Editor）：
+
+- `Performance/SceneGuard/SceneView TCRender Fallback Enabled`
+- `Performance/SceneGuard/SceneView TCRender Diagnostics`（查看 `skybox fallback sampled source=...`）
+
+### 4. SceneGuard Tools（诊断，可选）
+
+**Apply SceneGuard tools** 注入 trace / 一键禁用脚本，用于排查 Game vs SceneView 管线差异，日常编辑可不装。
+
+### 5. Unity Freeze Watchdog（卡死监控）
+
+- **心跳**：Unity 内 `MacGPUSafeGuard.cs` 写 `~/Library/Application Support/MacGPUSafeGuard/heartbeat`
+- **检测**：`unity_freeze_watchdog.sh` 默认 12 秒无心跳则快照并 kill
+- **快照**：进程栈、Editor.log、MacGPUSafeGuard 相关日志摘要
+
+### 6. Manual Kill（手动终止）
+
+- `kill-unity.sh`：终止 Editor / Hub，异步快照（约 0.4s）或 `--no-snapshot` 极速模式（约 0.38s）
+
+---
+
+## 快速开始
+
+### 安装 App
+
+```bash
+git clone https://github.com/RyanJC0416/MacGPUSafeGuardOnUnity.git
+cd MacGPUSafeGuardOnUnity
+bash build.sh
+cp -R GpuSafeGuard.app /Applications/
+```
+
+或从 [Releases](https://github.com/RyanJC0416/MacGPUSafeGuardOnUnity/releases) 下载 `GpuSafeGuard.app.zip` 解压到 `/Applications/`。
+
+> macOS App Translocation：未放入 `/Applications/` 时无法使用应用内自动更新。
+
+### 配置 Settings
+
+1. 打开 **GpuSafeGuard → Settings**
+2. 填写 **Unity project path**（`client/unity` 根目录）
+3. 配置 **P4**（binary / port / client / user），点 **Refresh**
+4. **Default CL**：从列表选择，或点 **New CL…** 创建（默认描述 `[Mac 适配] GpuSafeGuard`）
+5. 按需 **Apply** 三条通道之一（或全部）：
+   - Mac GPU Safe Guard
+   - SceneGuard
+   - SceneGuard Tools
+
+### 启动 Watchdog（主界面）
+
+1. 填写 Unity 工程路径与 Unity Editor 可执行文件路径
+2. 打开 **Watchdog** 开关
+
+---
+
+## 目录与数据路径
+
+```
+~/Library/Application Support/MacGPUSafeGuard/
+├── heartbeat              # Unity 心跳时间戳
+├── compiling              # 编译中标记
+├── in_playmode            # PlayMode 标记
+├── snapshots/             # kill / watchdog 诊断快照
+├── watchdog/watchdog.log
+└── updates/               # 应用内更新下载缓存
+```
+
+App 内置资源：
+
+```
+GpuSafeGuard.app/Contents/Resources/
+├── templates/             # Mac GPU Safe Guard（2 个 .cs）
+├── scene-guard/           # SceneGuard 核心
+└── scene-guard-tools/     # SceneGuard 诊断
+```
+
+---
+
+## 命令行（可选）
+
+与 App 内置脚本相同，仓库根目录也可直接运行：
+
+```bash
+# Watchdog
+bash unity_freeze_watchdog.sh --start 12
+bash unity_freeze_watchdog.sh --status
+bash unity_freeze_watchdog.sh --stop
+
+# Kill
+bash kill-unity.sh              # Editor + 异步快照
+bash kill-unity.sh --all        # Editor + Hub
+bash kill-unity.sh --no-snapshot
+```
+
+详见 [USAGE.md](USAGE.md)。
+
+---
+
+## 典型场景
+
+| 场景 | 做法 |
+|------|------|
+| PlayMode 卡死 | Apply Mac GPU Safe Guard + 开 Watchdog |
+| Scene 无贴图/黑屏 | Apply SceneGuard，确认 Fallback 菜单已开启 |
+| Scene / Game 天空色差 | v1.8.3+ 已采样天空材质；开 Diagnostics 看 `sampled source` |
+| 补丁写入 P4 | Settings 选 CL → Apply 对应通道 |
+| Hub 显示已打开但无 Editor | `kill-unity.sh --all` |
+
+---
+
+## 版本历史（摘要）
+
+| 版本 | 要点 |
+|------|------|
+| **v1.8.3** | SceneGuard 天空盒 fallback 从材质/环境光采样 |
+| **v1.8.2** | Settings 内 **New CL…** 创建 P4 changelist |
+| **v1.8.1** | Mac GPU Safe Guard 不再包含 SetURPSettings |
+| **v1.8.0** | 三条独立 Apply 通道（runtime / SceneGuard / tools） |
+
+更早版本与细节 → [CHANGELOG.md](CHANGELOG.md)
+
+---
+
+## 相关文档
+
+- [CHANGELOG.md](CHANGELOG.md) — 完整变更记录
+- [USAGE.md](USAGE.md) — kill-unity.sh 说明
+- [SceneGuard/README.md](SceneGuard/README.md) — SceneGuard 设计与补丁镜像
+- [UPDATE_TROUBLESHOOTING.md](UPDATE_TROUBLESHOOTING.md) — 应用内更新问题
+
+---
+
+**测试环境**: macOS 15+ · Unity 2022.3+ · Apple Silicon  
+**维护**: [RyanJC0416/MacGPUSafeGuardOnUnity](https://github.com/RyanJC0416/MacGPUSafeGuardOnUnity)
