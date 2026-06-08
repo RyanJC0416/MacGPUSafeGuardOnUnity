@@ -8,7 +8,7 @@ echo "This removes GpuSafeGuard Application Support data:"
 echo "  $SUPPORT"
 echo "Including: watchdog, updates cache, heartbeat, snapshots (if under support dir)."
 read -r -p "Continue? [y/N] " ans
-if [[ "${ans,,}" != "y" ]]; then
+if [[ ! "$ans" =~ ^[yY]$ ]]; then
   echo "Cancelled."
   exit 0
 fi
