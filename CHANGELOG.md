@@ -1,5 +1,12 @@
 # MacGPUSafeGuard Changelog
 
+## v1.8.2 - 2026-06-08 - P4 New CL in Settings
+
+### 新增
+
+- Settings → **Default CL** 旁增加 **New CL…**，通过 `p4 change -i` 创建 pending changelist 并自动选为默认 CL
+- 默认描述：`[Mac 适配] GpuSafeGuard`
+
 ## v1.8.1 - 2026-06-08 - Mac GPU Safe Guard apply scope trim
 
 ### 变更

@@ -12,7 +12,8 @@ enum Shell {
         _ executable: String,
         args: [String] = [],
         cwd: String? = nil,
-        env: [String: String]? = nil
+        env: [String: String]? = nil,
+        stdin: String? = nil
     ) -> ShellResult {
         let p = Process()
         p.executableURL = URL(fileURLWithPath: executable)
@@ -21,7 +22,8 @@ enum Shell {
             p.currentDirectoryURL = URL(fileURLWithPath: cwd)
         }
         if let env { p.environment = env }
-        p.standardInput = FileHandle.nullDevice
+        let inPipe = Pipe()
+        p.standardInput = inPipe
         let outPipe = Pipe()
         let errPipe = Pipe()
         p.standardOutput = outPipe
@@ -52,10 +54,15 @@ enum Shell {
         do {
             try p.run()
         } catch {
+            inPipe.fileHandleForWriting.closeFile()
             outPipe.fileHandleForReading.readabilityHandler = nil
             errPipe.fileHandleForReading.readabilityHandler = nil
             return ShellResult(exitCode: -1, stdout: "", stderr: "spawn failed: \(error.localizedDescription)")
         }
+        if let stdin, let data = stdin.data(using: .utf8) {
+            inPipe.fileHandleForWriting.write(data)
+        }
+        inPipe.fileHandleForWriting.closeFile()
         p.waitUntilExit()
 
         outPipe.fileHandleForReading.readabilityHandler = nil

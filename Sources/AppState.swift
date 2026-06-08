@@ -28,6 +28,7 @@ final class AppState: ObservableObject {
     @Published var p4Env: P4Env = P4Env()
     @Published var p4Error: String? = nil
     @Published var changelists: [P4Changelist] = []
+    @Published var newChangelistError: String? = nil
 
     @Published var injectorTargets: [InjectorTarget] = UnityInjector.innerSafeSpecs
     @Published var sceneGuardTargets: [InjectorTarget] = UnityInjector.sceneGuardSpecs
@@ -211,6 +212,44 @@ final class AppState: ObservableObject {
             let output = r.stdout.isEmpty ? (r.stderr.isEmpty ? "(no output)" : r.stderr) : r.stdout
             await MainActor.run {
                 self.processList = output
+            }
+        }
+    }
+
+    func createChangelist(description: String, selectAfterCreate: Bool = true) {
+        guard !busy.contains(.p4) else { return }
+        busy.insert(.p4)
+        newChangelistError = nil
+        let p4 = makeP4()
+        Task.detached(priority: .userInitiated) {
+            let (newId, createErr) = p4.createChangelist(description: description)
+            if let createErr {
+                await MainActor.run {
+                    self.newChangelistError = createErr
+                    self.busy.remove(.p4)
+                }
+                return
+            }
+            let (envR, envErr) = p4.readEnv()
+            let cls: [P4Changelist]
+            let listErr: String?
+            if envErr == nil {
+                let (list, err) = p4.listPendingChangelists(env: envR)
+                cls = list
+                listErr = err
+            } else {
+                cls = []
+                listErr = envErr
+            }
+            await MainActor.run {
+                self.p4Env = envR
+                self.p4Error = listErr
+                self.changelists = cls
+                if selectAfterCreate, let newId {
+                    self.defaultChangelist = newId
+                }
+                self.newChangelistError = nil
+                self.busy.remove(.p4)
             }
         }
     }

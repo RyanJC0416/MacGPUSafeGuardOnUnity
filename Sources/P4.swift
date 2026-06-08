@@ -108,6 +108,29 @@ struct P4Manager {
         return (result, nil)
     }
 
+    /// Creates a pending changelist via `p4 change -i`. Returns new change number.
+    func createChangelist(description: String) -> (String?, String?) {
+        let trimmed = description.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            return (nil, "changelist description is empty")
+        }
+        let descBody = trimmed
+            .split(separator: "\n", omittingEmptySubsequences: false)
+            .map { "\t\($0)" }
+            .joined(separator: "\n")
+        let spec = "Change:\tnew\nDescription:\n\(descBody)\n\n"
+        let r = Shell.run(p4Binary, args: ["change", "-i"], cwd: cwd, env: p4Env, stdin: spec)
+        guard r.ok else {
+            let msg = r.stderr.isEmpty ? r.stdout : r.stderr
+            return (nil, msg.trimmingCharacters(in: .whitespacesAndNewlines))
+        }
+        let combined = r.stdout + r.stderr
+        guard let id = Self.parseCreatedChangeId(from: combined) else {
+            return (nil, "p4 change succeeded but could not parse change number")
+        }
+        return (id, nil)
+    }
+
     func edit(file: String, changelist: String) -> ShellResult {
         var args = ["edit"]
         if !changelist.isEmpty { args += ["-c", changelist] }
@@ -131,5 +154,15 @@ struct P4Manager {
     private func strip(prefix: String, from s: String) -> String? {
         guard s.hasPrefix(prefix) else { return nil }
         return String(s.dropFirst(prefix.count)).trimmingCharacters(in: .whitespaces)
+    }
+
+    private static func parseCreatedChangeId(from output: String) -> String? {
+        for raw in output.split(separator: "\n") {
+            let line = String(raw).trimmingCharacters(in: .whitespaces)
+            guard line.hasPrefix("Change "), line.hasSuffix(" created.") else { continue }
+            let parts = line.split(separator: " ")
+            if parts.count >= 2 { return String(parts[1]) }
+        }
+        return nil
     }
 }

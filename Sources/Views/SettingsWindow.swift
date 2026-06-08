@@ -3,6 +3,8 @@ import AppKit
 
 struct SettingsWindow: View {
     @EnvironmentObject var state: AppState
+    @State private var showNewCLSheet = false
+    @State private var newCLDescription = "[Mac 适配] GpuSafeGuard"
 
     var body: some View {
         VStack(spacing: 16) {
@@ -174,23 +176,38 @@ struct SettingsWindow: View {
                             Button("Refresh") { state.refreshP4() }
                         }
 
-                        HStack {
+                        HStack(alignment: .top) {
                             Text("Default CL:")
                                 .bold()
                                 .frame(width: 110, alignment: .leading)
-                            Picker("", selection: $state.defaultChangelist) {
-                                Text("(none)").tag("")
-                                ForEach(state.changelists) { cl in
-                                    Text(cl.label).tag(cl.id)
+                            VStack(alignment: .leading, spacing: 6) {
+                                HStack {
+                                    Picker("", selection: $state.defaultChangelist) {
+                                        Text("(none)").tag("")
+                                        ForEach(state.changelists) { cl in
+                                            Text(cl.label).tag(cl.id)
+                                        }
+                                        if !state.defaultChangelist.isEmpty
+                                            && !state.changelists.contains(where: { $0.id == state.defaultChangelist }) {
+                                            Text("\(state.defaultChangelist) (manual)").tag(state.defaultChangelist)
+                                        }
+                                    }
+                                    .frame(maxWidth: 420)
+                                    .labelsHidden()
+                                    Button("New CL…") { showNewCLSheet = true }
+                                        .disabled(state.busy.contains(.p4) || state.p4Error != nil)
                                 }
-                                if !state.defaultChangelist.isEmpty
-                                    && !state.changelists.contains(where: { $0.id == state.defaultChangelist }) {
-                                    Text("\(state.defaultChangelist) (manual)").tag(state.defaultChangelist)
+                                if let err = state.newChangelistError {
+                                    Text(err)
+                                        .font(.caption)
+                                        .foregroundColor(.red)
+                                        .textSelection(.enabled)
                                 }
                             }
-                            .frame(maxWidth: 480)
-                            .labelsHidden()
                             Spacer()
+                        }
+                        .sheet(isPresented: $showNewCLSheet) {
+                            newChangelistSheet
                         }
 
                         Divider()
@@ -492,6 +509,38 @@ struct SettingsWindow: View {
             return "all in sync — nothing to apply"
         }
         return ""
+    }
+
+    private var newChangelistSheet: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("New Perforce Changelist")
+                .font(.headline)
+            Text("Description")
+                .font(.caption)
+                .foregroundColor(.secondary)
+            TextField("e.g. [Mac 适配] GpuSafeGuard", text: $newCLDescription)
+                .textFieldStyle(.roundedBorder)
+            if let err = state.newChangelistError {
+                Text(err)
+                    .font(.caption)
+                    .foregroundColor(.red)
+                    .textSelection(.enabled)
+            }
+            HStack {
+                Spacer()
+                Button("Cancel") { showNewCLSheet = false }
+                Button("Create") {
+                    let desc = newCLDescription.trimmingCharacters(in: .whitespacesAndNewlines)
+                    guard !desc.isEmpty else { return }
+                    state.createChangelist(description: desc)
+                    showNewCLSheet = false
+                }
+                .keyboardShortcut(.defaultAction)
+                .disabled(state.busy.contains(.p4) || newCLDescription.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            }
+        }
+        .padding(20)
+        .frame(width: 420)
     }
 
     private func canApplyInnerSafe() -> Bool { canApplyChannel(state.injectorTargets) }
