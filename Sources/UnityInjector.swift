@@ -1,39 +1,90 @@
 import Foundation
 import CryptoKit
 
+/// Bundled template channel: runtime GPU scripts vs Mac SceneGuard editor tools.
+enum InjectorChannel: String, Sendable {
+    case innerSafe = "inner-safe"
+    case sceneGuardTools = "scene-guard-tools"
+
+    var bundleSubdirectory: String {
+        switch self {
+        case .innerSafe: return "templates"
+        case .sceneGuardTools: return "scene-guard-tools"
+        }
+    }
+
+    var displayName: String {
+        switch self {
+        case .innerSafe: return "Unity Inner Safe"
+        case .sceneGuardTools: return "SceneGuard Tools"
+        }
+    }
+}
+
 struct UnityInjector {
+    let channel: InjectorChannel
     let unityProjectPath: String
     let p4: P4Manager
 
-    static let targetSpecs: [InjectorTarget] = [
+    static let innerSafeSpecs: [InjectorTarget] = [
         InjectorTarget(
             id: "MacGPUSafeGuard",
-            basename: "MacGPUSafeGuard.cs",
             relativePath: "Assets/scripts/Performance/MacGPUSafeGuard.cs"
         ),
         InjectorTarget(
             id: "MacGPUConfig",
-            basename: "MacGPUConfig.cs",
             relativePath: "Assets/scripts/Performance/MacGPUConfig.cs"
         ),
         InjectorTarget(
             id: "SetURPSettings",
-            basename: "SetURPSettings.cs",
             relativePath: "Assets/scripts/Framework/hot_update/ScriptLoader/Steps/SetURPSettings.cs"
         ),
     ]
 
-    private static func bundledTemplateURL(for basename: String) -> URL? {
-        Bundle.main.resourceURL?.appendingPathComponent("templates", isDirectory: true)
-            .appendingPathComponent(basename)
+    static let sceneGuardToolsSpecs: [InjectorTarget] = [
+        InjectorTarget(id: "SceneGuardFolder", relativePath: "Assets/Editor/SceneGuard.meta"),
+        InjectorTarget(id: "SceneGuardFallback", relativePath: "Assets/Editor/SceneGuardSceneViewFallbackRenderer.cs"),
+        InjectorTarget(id: "SceneGuardFallbackMeta", relativePath: "Assets/Editor/SceneGuardSceneViewFallbackRenderer.cs.meta"),
+        InjectorTarget(id: "SceneGuardLitShader", relativePath: "Assets/Editor/SceneGuardSceneViewLitFallback.shader"),
+        InjectorTarget(id: "SceneGuardLitShaderMeta", relativePath: "Assets/Editor/SceneGuardSceneViewLitFallback.shader.meta"),
+        InjectorTarget(id: "SceneGuardSkyShader", relativePath: "Assets/Editor/SceneGuardSceneViewSkyboxFallback.shader"),
+        InjectorTarget(id: "SceneGuardSkyShaderMeta", relativePath: "Assets/Editor/SceneGuardSceneViewSkyboxFallback.shader.meta"),
+        InjectorTarget(id: "SceneGuardWaterShader", relativePath: "Assets/Editor/SceneGuardSceneViewWaterFallback.shader"),
+        InjectorTarget(id: "SceneGuardWaterShaderMeta", relativePath: "Assets/Editor/SceneGuardSceneViewWaterFallback.shader.meta"),
+        InjectorTarget(id: "SceneGuardEcoHooks", relativePath: "Assets/Editor/SceneGuard/SceneGuardSceneViewEcoEngineHooks.cs"),
+        InjectorTarget(id: "SceneGuardEcoHooksMeta", relativePath: "Assets/Editor/SceneGuard/SceneGuardSceneViewEcoEngineHooks.cs.meta"),
+        InjectorTarget(id: "SceneGuardDisableFeatures", relativePath: "Assets/Editor/SceneGuardDisableAllFeatures.cs"),
+        InjectorTarget(id: "SceneGuardDisableFeaturesMeta", relativePath: "Assets/Editor/SceneGuardDisableAllFeatures.cs.meta"),
+        InjectorTarget(id: "SceneGuardGameTrace", relativePath: "Assets/Editor/SceneGuardGameVsSceneViewTrace.cs"),
+        InjectorTarget(id: "SceneGuardGameTraceMeta", relativePath: "Assets/Editor/SceneGuardGameVsSceneViewTrace.cs.meta"),
+        InjectorTarget(id: "SceneGuardPipelineTrace", relativePath: "Assets/Editor/SceneGuardSceneViewPipelineTrace.cs"),
+        InjectorTarget(id: "SceneGuardPipelineTraceMeta", relativePath: "Assets/Editor/SceneGuardSceneViewPipelineTrace.cs.meta"),
+    ]
+
+    private var targetSpecs: [InjectorTarget] {
+        switch channel {
+        case .innerSafe: return Self.innerSafeSpecs
+        case .sceneGuardTools: return Self.sceneGuardToolsSpecs
+        }
+    }
+
+    private func bundledTemplateURL(for spec: InjectorTarget) -> URL? {
+        guard let base = Bundle.main.resourceURL?
+            .appendingPathComponent(channel.bundleSubdirectory, isDirectory: true) else { return nil }
+        switch channel {
+        case .innerSafe:
+            return base.appendingPathComponent(spec.basename)
+        case .sceneGuardTools:
+            return base.appendingPathComponent(spec.relativePath)
+        }
     }
 
     func check() -> [InjectorTarget] {
-        guard !unityProjectPath.isEmpty else { return Self.targetSpecs }
+        guard !unityProjectPath.isEmpty else { return targetSpecs }
         let projectURL = URL(fileURLWithPath: unityProjectPath)
-        return Self.targetSpecs.map { spec in
+        return targetSpecs.map { spec in
             var t = spec
-            guard let templateURL = Self.bundledTemplateURL(for: spec.basename) else {
+            guard let templateURL = bundledTemplateURL(for: spec) else {
                 t.status = .templateMissing
                 return t
             }
@@ -60,7 +111,7 @@ struct UnityInjector {
         let projectURL = URL(fileURLWithPath: unityProjectPath)
         var results: [InjectorResult] = []
         for t in check() {
-            guard let templateURL = Self.bundledTemplateURL(for: t.basename) else {
+            guard let templateURL = bundledTemplateURL(for: t) else {
                 results.append(InjectorResult(basename: t.basename, action: "ERROR: bundled template not found", ok: false))
                 continue
             }

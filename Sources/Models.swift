@@ -79,9 +79,10 @@ enum FileStatus: String {
 
 struct InjectorTarget: Identifiable, Hashable {
     let id: String
-    let basename: String
     let relativePath: String
     var status: FileStatus = .templateMissing
+
+    var basename: String { (relativePath as NSString).lastPathComponent }
 }
 
 struct InjectorResult: Identifiable, Hashable {

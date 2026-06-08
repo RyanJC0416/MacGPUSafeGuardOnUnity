@@ -225,34 +225,46 @@ struct SettingsWindow: View {
                             }
                         }
 
-                        if !state.lastApplyResults.isEmpty {
-                            Divider()
-                            Text("Result").font(.headline)
-                            ScrollView {
-                                VStack(alignment: .leading, spacing: 4) {
-                                    ForEach(state.lastApplyResults) { r in
-                                        HStack(alignment: .top, spacing: 8) {
-                                            Image(systemName: r.ok ? "checkmark.circle.fill" : "xmark.circle.fill")
-                                                .foregroundColor(r.ok ? .green : .red)
-                                                .frame(width: 18)
-                                            VStack(alignment: .leading, spacing: 2) {
-                                                Text(r.basename).font(.system(.body, design: .monospaced))
-                                                Text(r.action)
-                                                    .font(.system(.caption, design: .monospaced))
-                                                    .foregroundColor(.secondary)
-                                                    .textSelection(.enabled)
-                                            }
-                                            Spacer()
-                                        }
-                                    }
+                        applyResultsPanel(state.lastApplyResults)
+
+                        Divider()
+
+                        Text("SceneGuard Tools (Mac Editor)").font(.headline)
+                        Text("Separate channel from runtime GPU safe scripts. Copies Assets/Editor/SceneGuard* into the Unity project.")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+
+                        VStack(alignment: .leading, spacing: 4) {
+                            ForEach(state.sceneGuardToolsTargets) { t in
+                                HStack(spacing: 8) {
+                                    Image(systemName: iconForStatus(t.status))
+                                        .foregroundColor(colorForStatus(t.status))
+                                        .frame(width: 18)
+                                    Text(t.relativePath)
+                                        .font(.system(.caption, design: .monospaced))
+                                        .lineLimit(1)
+                                        .truncationMode(.middle)
+                                    Spacer()
+                                    Text(t.status.rawValue)
+                                        .font(.system(.caption2, design: .monospaced))
+                                        .foregroundColor(colorForStatus(t.status))
                                 }
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                                .padding(8)
                             }
-                            .background(Color(NSColor.textBackgroundColor))
-                            .cornerRadius(6)
-                            .frame(minHeight: 120, maxHeight: 220)
                         }
+
+                        HStack {
+                            Button("Apply SceneGuard tools") { state.applySceneGuardTools() }
+                                .buttonStyle(.borderedProminent)
+                                .disabled(!canApplyTools())
+                            Button("Re-check") { state.refreshSceneGuardTools() }
+                            if !canApplyTools() {
+                                Text(applyToolsDisabledReason())
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                            }
+                        }
+
+                        applyResultsPanel(state.lastSceneGuardApplyResults)
                     }
                     .padding(12)
                     .background(Color(NSColor.controlBackgroundColor))
@@ -385,8 +397,41 @@ struct SettingsWindow: View {
         .onAppear {
             if state.p4Env.user.isEmpty { state.refreshP4() }
             state.refreshInjector()
+            state.refreshSceneGuardTools()
             state.refreshSnapshotSizes()
             state.refreshUnityTmpSizes()
+        }
+    }
+
+    @ViewBuilder
+    private func applyResultsPanel(_ results: [InjectorResult]) -> some View {
+        if !results.isEmpty {
+            Divider()
+            Text("Result").font(.headline)
+            ScrollView {
+                VStack(alignment: .leading, spacing: 4) {
+                    ForEach(results) { r in
+                        HStack(alignment: .top, spacing: 8) {
+                            Image(systemName: r.ok ? "checkmark.circle.fill" : "xmark.circle.fill")
+                                .foregroundColor(r.ok ? .green : .red)
+                                .frame(width: 18)
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(r.basename).font(.system(.body, design: .monospaced))
+                                Text(r.action)
+                                    .font(.system(.caption, design: .monospaced))
+                                    .foregroundColor(.secondary)
+                                    .textSelection(.enabled)
+                            }
+                            Spacer()
+                        }
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(8)
+            }
+            .background(Color(NSColor.textBackgroundColor))
+            .cornerRadius(6)
+            .frame(minHeight: 120, maxHeight: 220)
         }
     }
 
@@ -421,6 +466,21 @@ struct SettingsWindow: View {
         if state.unityProjectPath.isEmpty { return "set Unity project path first" }
         if state.defaultChangelist.isEmpty { return "select a default CL first" }
         if !state.injectorTargets.contains(where: { $0.status == .drift || $0.status == .missing }) {
+            return "all in sync — nothing to apply"
+        }
+        return ""
+    }
+
+    private func canApplyTools() -> Bool {
+        guard !state.unityProjectPath.isEmpty else { return false }
+        guard !state.defaultChangelist.isEmpty else { return false }
+        return state.sceneGuardToolsTargets.contains { $0.status == .drift || $0.status == .missing }
+    }
+
+    private func applyToolsDisabledReason() -> String {
+        if state.unityProjectPath.isEmpty { return "set Unity project path first" }
+        if state.defaultChangelist.isEmpty { return "select a default CL first" }
+        if !state.sceneGuardToolsTargets.contains(where: { $0.status == .drift || $0.status == .missing }) {
             return "all in sync — nothing to apply"
         }
         return ""

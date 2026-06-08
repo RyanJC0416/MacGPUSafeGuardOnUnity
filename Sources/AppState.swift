@@ -2,7 +2,7 @@ import Foundation
 import SwiftUI
 
 enum BusyKind: String, Hashable, Sendable {
-    case watchdog, p4, injector, apply
+    case watchdog, p4, injector, apply, toolsInjector, toolsApply
 }
 
 @MainActor
@@ -26,8 +26,10 @@ final class AppState: ObservableObject {
     @Published var p4Error: String? = nil
     @Published var changelists: [P4Changelist] = []
 
-    @Published var injectorTargets: [InjectorTarget] = UnityInjector.targetSpecs
+    @Published var injectorTargets: [InjectorTarget] = UnityInjector.innerSafeSpecs
+    @Published var sceneGuardToolsTargets: [InjectorTarget] = UnityInjector.sceneGuardToolsSpecs
     @Published var lastApplyResults: [InjectorResult] = []
+    @Published var lastSceneGuardApplyResults: [InjectorResult] = []
     @Published var processList: String = ""
     @Published var updateStatus: UpdateStatus = .idle
     @Published var snapshotSizes: SnapshotSizes = SnapshotSizes()
@@ -80,8 +82,8 @@ final class AppState: ObservableObject {
         P4Manager(p4Binary: p4Binary, p4Port: p4Port, p4Client: p4Client, p4User: p4User, p4Password: p4Password, cwd: unityProjectPath.isEmpty ? nil : unityProjectPath)
     }
 
-    func makeInjector() -> UnityInjector {
-        UnityInjector(unityProjectPath: unityProjectPath, p4: makeP4())
+    func makeInjector(channel: InjectorChannel = .innerSafe) -> UnityInjector {
+        UnityInjector(channel: channel, unityProjectPath: unityProjectPath, p4: makeP4())
     }
 
     func activateWatchdog() {
@@ -236,7 +238,7 @@ final class AppState: ObservableObject {
     func refreshInjector() {
         guard !busy.contains(.injector) else { return }
         busy.insert(.injector)
-        let inj = makeInjector()
+        let inj = makeInjector(channel: .innerSafe)
         Task.detached(priority: .userInitiated) {
             let targets = inj.check()
             await MainActor.run {
@@ -246,10 +248,23 @@ final class AppState: ObservableObject {
         }
     }
 
+    func refreshSceneGuardTools() {
+        guard !busy.contains(.toolsInjector) else { return }
+        busy.insert(.toolsInjector)
+        let inj = makeInjector(channel: .sceneGuardTools)
+        Task.detached(priority: .userInitiated) {
+            let targets = inj.check()
+            await MainActor.run {
+                self.sceneGuardToolsTargets = targets
+                self.busy.remove(.toolsInjector)
+            }
+        }
+    }
+
     func applyInnerSafe() {
         guard !busy.contains(.apply) else { return }
         busy.insert(.apply)
-        let inj = makeInjector()
+        let inj = makeInjector(channel: .innerSafe)
         let cl = defaultChangelist
         Task.detached(priority: .userInitiated) {
             let results = inj.apply(changelist: cl)
@@ -258,6 +273,22 @@ final class AppState: ObservableObject {
                 self.lastApplyResults = results
                 self.injectorTargets = targets
                 self.busy.remove(.apply)
+            }
+        }
+    }
+
+    func applySceneGuardTools() {
+        guard !busy.contains(.toolsApply) else { return }
+        busy.insert(.toolsApply)
+        let inj = makeInjector(channel: .sceneGuardTools)
+        let cl = defaultChangelist
+        Task.detached(priority: .userInitiated) {
+            let results = inj.apply(changelist: cl)
+            let targets = inj.check()
+            await MainActor.run {
+                self.lastSceneGuardApplyResults = results
+                self.sceneGuardToolsTargets = targets
+                self.busy.remove(.toolsApply)
             }
         }
     }

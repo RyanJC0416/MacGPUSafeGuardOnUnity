@@ -8,6 +8,8 @@ Copy everything under `Assets/Editor/` into the Unity project at the same relati
 <unity-project>/Assets/Editor/
 ```
 
+Or use **GpuSafeGuard.app → Settings → Apply SceneGuard tools** (separate from *Apply unity inner safe*). Requires Unity project path + default P4 changelist.
+
 ## Stable behavior (default)
 
 | Item | Value |

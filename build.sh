@@ -31,10 +31,16 @@ cp Resources/watchdog.sh.tmpl "$APP/Contents/Resources/"
 cp kill-unity.sh "$APP/Contents/Resources/"
 chmod +x "$APP/Contents/Resources/kill-unity.sh"
 
-# Copy Unity injection templates
+# Copy Unity injection templates (runtime GPU safe — flat templates/)
 if [ -d "Resources/templates" ]; then
   mkdir -p "$APP/Contents/Resources/templates"
   cp -R Resources/templates/* "$APP/Contents/Resources/templates/"
+fi
+
+# SceneGuard editor tools (separate apply channel — preserves Assets/ tree)
+if [ -d "Resources/scene-guard-tools" ]; then
+  mkdir -p "$APP/Contents/Resources/scene-guard-tools"
+  cp -R Resources/scene-guard-tools/* "$APP/Contents/Resources/scene-guard-tools/"
 fi
 
 echo "Writing Info.plist…"

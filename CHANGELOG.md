@@ -5,7 +5,8 @@
 - Git mirror of verified Mac SceneView fallback under `SceneGuard/unity-patches/`
 - Stable path: original materials + gizmos + opaque water placeholder; play mirror disabled
 - Devlog: `SceneGuard/devlogs/2026-06-08-sceneview-fallback-stable.md`
-- App injection not included in this commit (Phase 2)
+- App: bundled under `Resources/scene-guard-tools/`; **Apply SceneGuard tools** in Settings (separate from inner safe)
+- Sync script: `tools/sync_scene_guard_tools.sh` (unity-patches → Resources)
 
 ## v1.7.0 - 2026-05-28 - Unity Tmp Cleanup
 
