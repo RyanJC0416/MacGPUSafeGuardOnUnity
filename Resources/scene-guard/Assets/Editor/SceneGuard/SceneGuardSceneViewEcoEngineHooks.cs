@@ -34,41 +34,6 @@ public static class SceneGuardSceneViewEcoEngineHooks
 
     public static bool IsAttached => hooksAttached;
 
-    [MenuItem("Performance/SceneGuard/SceneView Eco Hooks/Apply", false, 318)]
-    private static void MenuApply()
-    {
-        if (Application.platform != RuntimePlatform.OSXEditor)
-            return;
-
-        EditorPrefs.SetBool(EnabledPrefsKey, true);
-        Attach();
-        SceneView.RepaintAll();
-    }
-
-    [MenuItem("Performance/SceneGuard/SceneView Eco Hooks/Remove", false, 319)]
-    private static void MenuRemove()
-    {
-        Detach();
-        EditorPrefs.SetBool(EnabledPrefsKey, false);
-        SceneView.RepaintAll();
-    }
-
-    [MenuItem("Performance/SceneGuard/SceneView Eco Hooks/Auto Apply On Load", false, 320)]
-    private static void ToggleAutoApply()
-    {
-        bool next = !EditorPrefs.GetBool(EnabledPrefsKey, false);
-        EditorPrefs.SetBool(EnabledPrefsKey, next);
-        Debug.Log($"[SceneGuardEcoHooks] Auto apply on load = {next}");
-    }
-
-    [MenuItem("Performance/SceneGuard/SceneView Eco Hooks/Auto Apply On Load", true)]
-    private static bool ToggleAutoApplyValidate()
-    {
-        Menu.SetChecked("Performance/SceneGuard/SceneView Eco Hooks/Auto Apply On Load",
-            EditorPrefs.GetBool(EnabledPrefsKey, false));
-        return Application.platform == RuntimePlatform.OSXEditor;
-    }
-
     public static void Attach()
     {
         if (Application.platform != RuntimePlatform.OSXEditor || hooksAttached)

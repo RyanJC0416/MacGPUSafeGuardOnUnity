@@ -4,7 +4,7 @@ macOS 上的 Unity Editor 稳定性工具集：**PlayMode GPU 保护**、**Scene
 
 面向 EcoEngine URP / TCRender 项目在 Mac 上常见的：Play 卡死、Scene 窗口黑屏/无贴图、GPU 压力过高等问题。
 
-**当前版本**: v1.8.3 · [Releases](https://github.com/RyanJC0416/MacGPUSafeGuardOnUnity/releases) · 详细变更见 [CHANGELOG.md](CHANGELOG.md)
+**当前版本**: v1.8.4 · [Releases](https://github.com/RyanJC0416/MacGPUSafeGuardOnUnity/releases) · 详细变更见 [CHANGELOG.md](CHANGELOG.md)
 
 ---
 
@@ -42,14 +42,11 @@ Mac Editor SceneView 在 Metal/URP 下易出现黑屏或 TCRender 不显示。Sc
 
 从材质读取 `_SkyTint`、`_GroundColor`、`_Exposure` 等，尽量贴近 Game 天空观感（双色渐变近似，非完整 Nephele 大气管线）。
 
-Unity 菜单（Mac Editor）：
-
-- `Performance/SceneGuard/SceneView TCRender Fallback Enabled`
-- `Performance/SceneGuard/SceneView TCRender Diagnostics`（查看 `skybox fallback sampled source=...`）
+**v1.8.4+**：无 Unity `Performance` 菜单；Mac Editor 打开工程后 **自动启用** SceneView 修复（`Submit + Original Materials`）。
 
 ### 4. SceneGuard Tools（诊断，可选）
 
-**Apply SceneGuard tools** 注入 trace / 一键禁用脚本，用于排查 Game vs SceneView 管线差异，日常编辑可不装。
+**Apply SceneGuard tools** 注入 trace 脚本，可通过 `Library/SceneGuard/command.txt` 触发管线对比（无菜单入口），日常编辑可不装。
 
 ### 5. Unity Freeze Watchdog（卡死监控）
 
@@ -144,8 +141,8 @@ bash kill-unity.sh --no-snapshot
 | 场景 | 做法 |
 |------|------|
 | PlayMode 卡死 | Apply Mac GPU Safe Guard + 开 Watchdog |
-| Scene 无贴图/黑屏 | Apply SceneGuard，确认 Fallback 菜单已开启 |
-| Scene / Game 天空色差 | v1.8.3+ 已采样天空材质；开 Diagnostics 看 `sampled source` |
+| Scene 无贴图/黑屏 | Apply SceneGuard（v1.8.4+ 开 Editor 即自动启用） |
+| Scene / Game 天空色差 | v1.8.3+ 已从天空材质/环境光采样 |
 | 补丁写入 P4 | Settings 选 CL → Apply 对应通道 |
 | Hub 显示已打开但无 Editor | `kill-unity.sh --all` |
 
@@ -155,6 +152,7 @@ bash kill-unity.sh --no-snapshot
 
 | 版本 | 要点 |
 |------|------|
+| **v1.8.4** | 移除全部 Performance 菜单；SceneGuard / Mac GPU 自动默认 |
 | **v1.8.3** | SceneGuard 天空盒 fallback 从材质/环境光采样 |
 | **v1.8.2** | Settings 内 **New CL…** 创建 P4 changelist |
 | **v1.8.1** | Mac GPU Safe Guard 不再包含 SetURPSettings |

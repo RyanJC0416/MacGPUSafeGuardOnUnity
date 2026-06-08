@@ -123,66 +123,14 @@ public static class SceneGuardSceneViewFallbackRenderer
             EditorPrefs.SetBool(PlayMirrorStabilityPrefsKey, true);
         }
 
+        // No Performance menu — fixed stable defaults on every Editor load.
+        EditorPrefs.SetBool(EditorPrefsKey, true);
+        EditorPrefs.SetInt(RepairModePrefsKey, (int)RepairMode.SubmitThenOriginalMaterials);
+        EditorPrefs.SetBool(DiagnosticsPrefsKey, false);
+        EditorPrefs.SetBool("SceneGuard.EcoEngineHooks.Enabled", false);
+
         ApplyPersistentFallbackState();
-        if (IsEnabled())
-            Debug.Log("[SceneGuard] Mac SceneView material restore ON (Original Materials + Submit). EcoHooks OFF.");
-        else
-            Debug.Log("[SceneGuardDiag] SceneView repair OFF. Enable via Performance/SceneGuard/SceneView TCRender Fallback Enabled.");
-    }
-
-    [MenuItem("Performance/SceneGuard/Re-enable Sky RendererFeatures", false, 313)]
-    private static void MenuReenableSkyFeatures()
-    {
-        ReenableSkyRendererFeatures();
-        SceneView.RepaintAll();
-    }
-
-    // --- Play mirror menus (disabled; see PlayMirrorPathEnabled) ---
-    // [MenuItem("Performance/SceneGuard/Repair Mode/Mirror Game Camera (Play)", false, 308)]
-    // private static void SetModeMirrorGameCamera() => SetRepairMode(RepairMode.MirrorGameCameraInPlay);
-    // [MenuItem("Performance/SceneGuard/Auto Mirror Game Camera In Play", false, 307)]
-    // private static void ToggleAutoMirrorInPlay() { ... }
-    // [MenuItem("Performance/SceneGuard/Mirror Exclude UI Layer", false, 306)]
-    // private static void ToggleMirrorExcludeUi() { ... }
-
-    [MenuItem("Performance/SceneGuard/Repair Mode/Submit + Original Materials", false, 309)]
-    private static void SetModeSubmitThenOriginal() => SetRepairMode(RepairMode.SubmitThenOriginalMaterials);
-
-    [MenuItem("Performance/SceneGuard/Repair Mode/Submit + Original Materials", true)]
-    private static bool SetModeSubmitThenOriginalValidate()
-    {
-        Menu.SetChecked("Performance/SceneGuard/Repair Mode/Submit + Original Materials", GetRepairMode() == RepairMode.SubmitThenOriginalMaterials);
-        return Application.platform == RuntimePlatform.OSXEditor;
-    }
-
-    [MenuItem("Performance/SceneGuard/Repair Mode/Submit Only", false, 310)]
-    private static void SetModeSubmitOnly() => SetRepairMode(RepairMode.SubmitOnly);
-
-    [MenuItem("Performance/SceneGuard/Repair Mode/Submit Only", true)]
-    private static bool SetModeSubmitOnlyValidate()
-    {
-        Menu.SetChecked("Performance/SceneGuard/Repair Mode/Submit Only", GetRepairMode() == RepairMode.SubmitOnly);
-        return Application.platform == RuntimePlatform.OSXEditor;
-    }
-
-    [MenuItem("Performance/SceneGuard/Repair Mode/Original Materials", false, 311)]
-    private static void SetModeOriginalMaterials() => SetRepairMode(RepairMode.OriginalMaterials);
-
-    [MenuItem("Performance/SceneGuard/Repair Mode/Original Materials", true)]
-    private static bool SetModeOriginalMaterialsValidate()
-    {
-        Menu.SetChecked("Performance/SceneGuard/Repair Mode/Original Materials", GetRepairMode() == RepairMode.OriginalMaterials);
-        return Application.platform == RuntimePlatform.OSXEditor;
-    }
-
-    [MenuItem("Performance/SceneGuard/Repair Mode/Proxy Fallback (Legacy)", false, 312)]
-    private static void SetModeProxyFallback() => SetRepairMode(RepairMode.ProxyFallback);
-
-    [MenuItem("Performance/SceneGuard/Repair Mode/Proxy Fallback (Legacy)", true)]
-    private static bool SetModeProxyFallbackValidate()
-    {
-        Menu.SetChecked("Performance/SceneGuard/Repair Mode/Proxy Fallback (Legacy)", GetRepairMode() == RepairMode.ProxyFallback);
-        return Application.platform == RuntimePlatform.OSXEditor;
+        Debug.Log("[SceneGuard] Mac SceneView repair ON (Submit + Original Materials). EcoHooks OFF.");
     }
 
     private static void SetRepairMode(RepairMode mode)
@@ -306,60 +254,6 @@ public static class SceneGuardSceneViewFallbackRenderer
         Shader.SetGlobalFloat(VolumetricCloudsEnabledId, 0f);
     }
 
-    [MenuItem("Performance/SceneGuard/SceneView TCRender Fallback Enabled", false, 320)]
-    private static void ToggleEnabled()
-    {
-        EditorPrefs.SetBool(EditorPrefsKey, !IsEnabled());
-        ApplyPersistentFallbackState();
-        SceneView.RepaintAll();
-    }
-
-    [MenuItem("Performance/SceneGuard/SceneView TCRender Fallback Enabled", true)]
-    private static bool ToggleEnabledValidate()
-    {
-        Menu.SetChecked("Performance/SceneGuard/SceneView TCRender Fallback Enabled", IsEnabled());
-        return Application.platform == RuntimePlatform.OSXEditor;
-    }
-
-    [MenuItem("Performance/SceneGuard/SceneView TCRender Diagnostics", false, 321)]
-    private static void ToggleDiagnostics()
-    {
-        EditorPrefs.SetBool(DiagnosticsPrefsKey, !DiagnosticsEnabled());
-        SceneView.RepaintAll();
-    }
-
-    [MenuItem("Performance/SceneGuard/SceneView TCRender Diagnostics", true)]
-    private static bool ToggleDiagnosticsValidate()
-    {
-        Menu.SetChecked("Performance/SceneGuard/SceneView TCRender Diagnostics", DiagnosticsEnabled());
-        return Application.platform == RuntimePlatform.OSXEditor;
-    }
-
-    [MenuItem("Performance/SceneGuard/Capture SceneView Render Chain Once", false, 322)]
-    private static void CaptureOnce()
-    {
-        RequestCapture(CaptureMode.DrawRendererNoSubmit);
-    }
-
-    [MenuItem("Performance/SceneGuard/Capture SceneView DrawRenderer + Submit Once", false, 323)]
-    private static void CaptureDrawRendererWithSubmitOnce()
-    {
-        RequestCapture(CaptureMode.DrawRendererWithSubmit);
-    }
-
-    [MenuItem("Performance/SceneGuard/Capture SceneView Clear + Submit Once", false, 324)]
-    private static void CaptureClearWithSubmitOnce()
-    {
-        RequestCapture(CaptureMode.ClearWithSubmit);
-    }
-
-    [MenuItem("Performance/SceneGuard/Capture SceneView Submit Only Once", false, 326)]
-    private static void CaptureSubmitOnlyOnce()
-    {
-        RequestCapture(CaptureMode.SubmitOnly);
-    }
-
-    [MenuItem("Performance/SceneGuard/Capture SceneView Lighting State Once", false, 325)]
     private static void CaptureLightingStateOnce()
     {
         if (Application.platform != RuntimePlatform.OSXEditor)

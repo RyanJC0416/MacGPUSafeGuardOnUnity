@@ -6,7 +6,6 @@ using UnityEditor;
 /// </summary>
 public static class SceneGuardDisableAllFeatures
 {
-    [MenuItem("Performance/SceneGuard/Disable All Features (Diagnostic)", false, 300)]
     static void DisableAll()
     {
         string path = "Assets/Settings/urp_renderer.asset";
@@ -45,7 +44,6 @@ public static class SceneGuardDisableAllFeatures
         Debug.Log($"[SceneGuard] Disabled {disabledCount} features on urp_renderer. Magenta test will run on next domain reload.");
     }
 
-    [MenuItem("Performance/SceneGuard/Restore All Features", false, 301)]
     static void RestoreAll()
     {
         string path = "Assets/Settings/urp_renderer.asset";

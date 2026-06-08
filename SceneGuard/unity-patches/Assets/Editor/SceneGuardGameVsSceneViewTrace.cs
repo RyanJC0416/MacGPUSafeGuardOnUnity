@@ -78,21 +78,6 @@ public static class SceneGuardGameVsSceneViewTrace
 
     public static bool IsTraceActive => state == TraceState.Collecting;
 
-    [MenuItem("Performance/SceneGuard/Trace Game vs SceneView (Compare)", false, 317)]
-    private static void MenuTrace()
-    {
-        if (Application.platform != RuntimePlatform.OSXEditor)
-            return;
-
-        BeginTrace("menu");
-    }
-
-    [MenuItem("Performance/SceneGuard/Trace Game vs SceneView (Compare)", true)]
-    private static bool MenuTraceValidate()
-    {
-        return Application.platform == RuntimePlatform.OSXEditor;
-    }
-
     private static void OnEditorUpdate()
     {
         if (state == TraceState.Collecting)

@@ -41,21 +41,6 @@ public static class SceneGuardSceneViewPipelineTrace
         EditorApplication.update += OnEditorUpdate;
     }
 
-    [MenuItem("Performance/SceneGuard/Trace SceneView Pipeline (Evidence)", false, 316)]
-    private static void MenuTrace()
-    {
-        if (Application.platform != RuntimePlatform.OSXEditor)
-            return;
-
-        BeginTrace("menu");
-    }
-
-    [MenuItem("Performance/SceneGuard/Trace SceneView Pipeline (Evidence)", true)]
-    private static bool MenuTraceValidate()
-    {
-        return Application.platform == RuntimePlatform.OSXEditor;
-    }
-
     private static void OnEditorUpdate()
     {
         if (EditorApplication.timeSinceStartup < nextCommandPollTime)

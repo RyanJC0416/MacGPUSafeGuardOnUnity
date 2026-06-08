@@ -1,5 +1,14 @@
 # MacGPUSafeGuard Changelog
 
+## v1.8.4 - 2026-06-08 - Zero Performance menu, auto defaults
+
+### 变更
+
+- **移除全部 Unity `Performance/*` 菜单**（Mac GPU Safe Guard、SceneGuard Repair Mode / Fallback 开关 / Diagnostics / Capture、Eco Hooks、Tools 诊断项）
+- **Editor 启动自动应用稳定默认**：SceneView 修复 ON、`Submit + Original Materials`、EcoHooks OFF、Diagnostics OFF
+- Mac GPU Safe Guard 仅保留 `[InitializeOnLoad]` 自动 Play 保护，不再提供会写盘的 `Apply All Settings` 菜单
+- SceneGuard Tools 脚本仍可通过 `Library/SceneGuard/command.txt` 触发 trace（无菜单入口）
+
 ## v1.8.3 - 2026-06-08 - SceneGuard skybox fallback sampling
 
 ### 变更
