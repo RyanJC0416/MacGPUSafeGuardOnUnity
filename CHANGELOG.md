@@ -1,5 +1,13 @@
 # MacGPUSafeGuard Changelog
 
+## v1.8.3 - 2026-06-08 - SceneGuard skybox fallback sampling
+
+### 变更
+
+- SceneGuard **天空盒 fallback** 不再使用硬编码渐变色
+- 绘制前从 `RenderSettings.skybox` → URP NepheleSky 材质 → 环境光 采样 `_SkyTint` / `_GroundColor` 等，尽量贴近 Game 天空
+- Diagnostics 开启时可查看 `skybox fallback sampled source=...`
+
 ## v1.8.2 - 2026-06-08 - P4 New CL in Settings
 
 ### 新增

@@ -65,6 +65,10 @@ public static class SceneGuardSceneViewFallbackRenderer
         new ShaderTagId("SRPDefaultUnlit"),
     };
     private static Material skyboxMaterial;
+    private static Material cachedRendererSkyMaterial;
+    private static string lastSkyFallbackSampleSource;
+    private static Color lastSkyFallbackTop;
+    private static Color lastSkyFallbackBottom;
     private static Material litFallbackMaterial;
     private static Material waterFallbackMaterial;
     private static Mesh skyboxMesh;
@@ -1149,12 +1153,15 @@ public static class SceneGuardSceneViewFallbackRenderer
             return;
 
         if (!useSceneSkyboxOnly)
+        {
+            ApplySampledSkyboxFallbackColors(fallbackMaterial);
             cmd.DrawMesh(mesh, matrix, fallbackMaterial, 0, 0);
+        }
     }
 
     private static bool TryDrawSceneSkybox(CommandBuffer cmd, Mesh mesh, Matrix4x4 matrix)
     {
-        Material sceneSkybox = RenderSettings.skybox;
+        Material sceneSkybox = ResolveSkyReferenceMaterial();
         if (sceneSkybox == null || sceneSkybox.shader == null || !sceneSkybox.shader.isSupported)
             return false;
 
@@ -1382,10 +1389,197 @@ public static class SceneGuardSceneViewFallbackRenderer
         }
 
         skyboxMaterial = new Material(shader) { hideFlags = HideFlags.HideAndDontSave };
-        skyboxMaterial.SetColor(TopColorId, new Color(0.55f, 0.72f, 0.92f, 1f));
-        skyboxMaterial.SetColor(BottomColorId, new Color(0.72f, 0.76f, 0.80f, 1f));
+        ApplySampledSkyboxFallbackColors(skyboxMaterial);
         Debug.Log($"[SceneGuardDiag] skybox fallback shader={shader.name} supported={shader.isSupported}");
         return skyboxMaterial;
+    }
+
+    /// <summary>
+    /// Prefer scene Lighting skybox; else URP NepheleSky feature material from renderer assets.
+    /// </summary>
+    private static Material ResolveSkyReferenceMaterial()
+    {
+        if (RenderSettings.skybox != null)
+            return RenderSettings.skybox;
+
+        return TryLoadSkyMaterialFromUrpRendererFeature();
+    }
+
+    private static Material TryLoadSkyMaterialFromUrpRendererFeature()
+    {
+        if (cachedRendererSkyMaterial != null)
+            return cachedRendererSkyMaterial;
+
+        string[] rendererPaths =
+        {
+            "Assets/Settings/urp_renderer.asset",
+            "Assets/Settings/urp_role_renderer.asset",
+            "Assets/Settings/urp_renderer_for_ui_scene.asset",
+        };
+
+        string[] packagedSkyMaterialPaths =
+        {
+            "Packages/com.unity.render-pipelines.universal/Res/Materials/NepheleSky/Skybox.mat",
+            "UserPackages/com.unity.render-pipelines.universal@14.0.12/Res/Materials/NepheleSky/Skybox.mat",
+            "Assets/scenes/raw/999100/volumes/res/material/comm_sky_base.mat",
+        };
+
+        foreach (string path in rendererPaths)
+        {
+            Object rendererAsset = AssetDatabase.LoadAssetAtPath<Object>(path);
+            if (rendererAsset == null)
+                continue;
+
+            SerializedObject rendererSo = new SerializedObject(rendererAsset);
+            SerializedProperty features = rendererSo.FindProperty("m_RendererFeatures");
+            if (features == null || !features.isArray)
+                continue;
+
+            for (int i = 0; i < features.arraySize; i++)
+            {
+                Object featureRef = features.GetArrayElementAtIndex(i).objectReferenceValue;
+                if (featureRef == null)
+                    continue;
+
+                SerializedObject featureSo = new SerializedObject(featureRef);
+                string featureName = featureSo.FindProperty("m_Name")?.stringValue ?? featureRef.name;
+                if (featureName.IndexOf("NepheleSky", System.StringComparison.OrdinalIgnoreCase) < 0)
+                    continue;
+
+                SerializedProperty skyShaderProp = featureSo.FindProperty("SkyboxShader")
+                    ?? featureSo.FindProperty("m_SkyboxShader")
+                    ?? featureSo.FindProperty("skyboxShader");
+                Shader skyShader = skyShaderProp != null ? skyShaderProp.objectReferenceValue as Shader : null;
+                if (skyShader == null)
+                    continue;
+
+                foreach (string matPath in packagedSkyMaterialPaths)
+                {
+                    Material packaged = AssetDatabase.LoadAssetAtPath<Material>(matPath);
+                    if (packaged != null && packaged.shader == skyShader)
+                    {
+                        cachedRendererSkyMaterial = packaged;
+                        return packaged;
+                    }
+                }
+
+                string[] materialGuids = AssetDatabase.FindAssets("t:Material comm_sky");
+                for (int g = 0; g < materialGuids.Length; g++)
+                {
+                    string matPath = AssetDatabase.GUIDToAssetPath(materialGuids[g]);
+                    Material candidate = AssetDatabase.LoadAssetAtPath<Material>(matPath);
+                    if (candidate != null && candidate.shader == skyShader)
+                    {
+                        cachedRendererSkyMaterial = candidate;
+                        return candidate;
+                    }
+                }
+            }
+        }
+
+        return null;
+    }
+
+    private static void ApplySampledSkyboxFallbackColors(Material fallbackMaterial)
+    {
+        if (fallbackMaterial == null)
+            return;
+
+        SampleSkyboxGradient(out Color top, out Color bottom, out string source);
+        fallbackMaterial.SetColor(TopColorId, top);
+        fallbackMaterial.SetColor(BottomColorId, bottom);
+
+        if (source == lastSkyFallbackSampleSource
+            && top == lastSkyFallbackTop
+            && bottom == lastSkyFallbackBottom)
+            return;
+
+        lastSkyFallbackSampleSource = source;
+        lastSkyFallbackTop = top;
+        lastSkyFallbackBottom = bottom;
+
+        if (DiagnosticsEnabled())
+        {
+            Debug.Log(
+                $"[SceneGuardDiag] skybox fallback sampled source={source} top={top} bottom={bottom}");
+        }
+    }
+
+    private static void SampleSkyboxGradient(out Color top, out Color bottom, out string source)
+    {
+        Material reference = ResolveSkyReferenceMaterial();
+        GetAmbientSkyGradient(out top, out bottom);
+        source = reference != null ? $"ambient+{reference.name}" : "RenderSettings.ambient";
+
+        if (reference == null)
+            return;
+
+        float exposure = reference.HasProperty("_Exposure") ? reference.GetFloat("_Exposure") : 1f;
+        exposure = Mathf.Max(exposure, 0.01f);
+
+        if (reference.HasProperty("_SkyTint"))
+        {
+            top = reference.GetColor("_SkyTint") * exposure;
+            source = $"{reference.name}._SkyTint";
+        }
+
+        if (reference.HasProperty("_GroundColor"))
+        {
+            bottom = reference.GetColor("_GroundColor") * exposure;
+            source += "+_GroundColor";
+        }
+        else if (reference.HasProperty("_GroundTint"))
+        {
+            bottom = reference.GetColor("_GroundTint") * exposure;
+            source += "+_GroundTint";
+        }
+
+        if (reference.HasProperty("_Tint"))
+        {
+            Color tint = reference.GetColor("_Tint");
+            top *= tint;
+            bottom *= tint;
+            source += "+_Tint";
+        }
+
+        if (reference.HasProperty("_AtmosphereThickness"))
+        {
+            float thickness = reference.GetFloat("_AtmosphereThickness");
+            top = Color.Lerp(bottom, top, Mathf.Clamp01(0.3f + thickness * 0.5f));
+            source += "+_AtmosphereThickness";
+        }
+
+        Light sun = GetSceneDirectionalLight();
+        if (sun != null)
+        {
+            Color sunContrib = sun.color * Mathf.Clamp(sun.intensity, 0f, 2f);
+            top = Color.Lerp(top, top + sunContrib * 0.3f, 0.25f);
+            source += "+sun";
+        }
+
+        top.a = 1f;
+        bottom.a = 1f;
+    }
+
+    private static void GetAmbientSkyGradient(out Color top, out Color bottom)
+    {
+        float intensity = RenderSettings.ambientIntensity;
+        switch (RenderSettings.ambientMode)
+        {
+            case AmbientMode.Flat:
+                top = bottom = RenderSettings.ambientLight * intensity;
+                break;
+            case AmbientMode.Trilight:
+                top = RenderSettings.ambientSkyColor * intensity;
+                bottom = RenderSettings.ambientEquatorColor * intensity;
+                break;
+            default:
+                top = RenderSettings.ambientSkyColor * intensity;
+                bottom = RenderSettings.ambientEquatorColor * intensity;
+                if (Mathf.Max(bottom.r, Mathf.Max(bottom.g, bottom.b)) < 0.01f)
+                    bottom = RenderSettings.ambientGroundColor * intensity;
+                break;
+        }
     }
 
     private static Material GetLitFallbackMaterial(Camera camera)
