@@ -17,6 +17,15 @@ Devlog: **[devlogs/2026-06-08-sceneview-fallback-stable.md](devlogs/2026-06-08-s
 | `plans/` | Phase plans |
 | `specs/` | Design spec |
 
+## App apply (GpuSafeGuard)
+
+| Channel | Bundle path | Settings button |
+|---------|-------------|-----------------|
+| Runtime GPU safe | `Resources/templates/` | **Apply unity inner safe** |
+| SceneGuard tools | `Resources/scene-guard-tools/` | **Apply SceneGuard tools** |
+
+Refresh bundle from git mirror: `./tools/sync_scene_guard_tools.sh` then `./build.sh`.
+
 ## Related
 
 - Unity project (Perforce): `WorkSpace_Ryan_Mac`
