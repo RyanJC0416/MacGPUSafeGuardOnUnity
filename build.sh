@@ -37,11 +37,13 @@ if [ -d "Resources/templates" ]; then
   cp -R Resources/templates/* "$APP/Contents/Resources/templates/"
 fi
 
-# SceneGuard editor tools (separate apply channel — preserves Assets/ tree)
-if [ -d "Resources/scene-guard-tools" ]; then
-  mkdir -p "$APP/Contents/Resources/scene-guard-tools"
-  cp -R Resources/scene-guard-tools/* "$APP/Contents/Resources/scene-guard-tools/"
-fi
+# SceneGuard core + diagnostics (separate apply channels — preserve Assets/ tree)
+for bundle in scene-guard scene-guard-tools; do
+  if [ -d "Resources/$bundle" ]; then
+    mkdir -p "$APP/Contents/Resources/$bundle"
+    cp -R "Resources/$bundle/"* "$APP/Contents/Resources/$bundle/"
+  fi
+done
 
 echo "Writing Info.plist…"
 cat > "$APP/Contents/Info.plist" <<EOF

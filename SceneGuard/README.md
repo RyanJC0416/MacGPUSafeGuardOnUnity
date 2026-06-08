@@ -17,14 +17,15 @@ Devlog: **[devlogs/2026-06-08-sceneview-fallback-stable.md](devlogs/2026-06-08-s
 | `plans/` | Phase plans |
 | `specs/` | Design spec |
 
-## App apply (GpuSafeGuard)
+## App apply (GpuSafeGuard) — three channels
 
-| Channel | Bundle path | Settings button |
-|---------|-------------|-----------------|
-| Runtime GPU safe | `Resources/templates/` | **Apply unity inner safe** |
-| SceneGuard tools | `Resources/scene-guard-tools/` | **Apply SceneGuard tools** |
+| # | Channel | Bundle path | Settings button |
+|---|---------|-------------|-----------------|
+| 1 | Mac GPU Safe Guard | `Resources/templates/` | **Apply Mac GPU Safe Guard** |
+| 2 | SceneGuard (core) | `Resources/scene-guard/` | **Apply SceneGuard** |
+| 3 | SceneGuard Tools | `Resources/scene-guard-tools/` | **Apply SceneGuard tools** |
 
-Refresh bundle from git mirror: `./tools/sync_scene_guard_tools.sh` then `./build.sh`.
+Refresh bundles from git mirror: `./tools/sync_scene_guard_bundles.sh` then `./build.sh`.
 
 ## Related
 

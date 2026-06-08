@@ -1,21 +1,24 @@
 import Foundation
 import CryptoKit
 
-/// Bundled template channel: runtime GPU scripts vs Mac SceneGuard editor tools.
+/// Three bundled apply channels (independent P4 apply, shared default CL).
 enum InjectorChannel: String, Sendable {
     case innerSafe = "inner-safe"
+    case sceneGuard = "scene-guard"
     case sceneGuardTools = "scene-guard-tools"
 
     var bundleSubdirectory: String {
         switch self {
         case .innerSafe: return "templates"
+        case .sceneGuard: return "scene-guard"
         case .sceneGuardTools: return "scene-guard-tools"
         }
     }
 
     var displayName: String {
         switch self {
-        case .innerSafe: return "Unity Inner Safe"
+        case .innerSafe: return "Mac GPU Safe Guard"
+        case .sceneGuard: return "SceneGuard"
         case .sceneGuardTools: return "SceneGuard Tools"
         }
     }
@@ -26,6 +29,7 @@ struct UnityInjector {
     let unityProjectPath: String
     let p4: P4Manager
 
+    // 1. Runtime Play-mode GPU protection (existing)
     static let innerSafeSpecs: [InjectorTarget] = [
         InjectorTarget(
             id: "MacGPUSafeGuard",
@@ -41,7 +45,8 @@ struct UnityInjector {
         ),
     ]
 
-    static let sceneGuardToolsSpecs: [InjectorTarget] = [
+    // 2. SceneGuard core — SceneView fallback repair (P4 CL 200404)
+    static let sceneGuardSpecs: [InjectorTarget] = [
         InjectorTarget(id: "SceneGuardFolder", relativePath: "Assets/Editor/SceneGuard.meta"),
         InjectorTarget(id: "SceneGuardFallback", relativePath: "Assets/Editor/SceneGuardSceneViewFallbackRenderer.cs"),
         InjectorTarget(id: "SceneGuardFallbackMeta", relativePath: "Assets/Editor/SceneGuardSceneViewFallbackRenderer.cs.meta"),
@@ -53,6 +58,10 @@ struct UnityInjector {
         InjectorTarget(id: "SceneGuardWaterShaderMeta", relativePath: "Assets/Editor/SceneGuardSceneViewWaterFallback.shader.meta"),
         InjectorTarget(id: "SceneGuardEcoHooks", relativePath: "Assets/Editor/SceneGuard/SceneGuardSceneViewEcoEngineHooks.cs"),
         InjectorTarget(id: "SceneGuardEcoHooksMeta", relativePath: "Assets/Editor/SceneGuard/SceneGuardSceneViewEcoEngineHooks.cs.meta"),
+    ]
+
+    // 3. SceneGuard diagnostics only (P4 CL 200405)
+    static let sceneGuardToolsSpecs: [InjectorTarget] = [
         InjectorTarget(id: "SceneGuardDisableFeatures", relativePath: "Assets/Editor/SceneGuardDisableAllFeatures.cs"),
         InjectorTarget(id: "SceneGuardDisableFeaturesMeta", relativePath: "Assets/Editor/SceneGuardDisableAllFeatures.cs.meta"),
         InjectorTarget(id: "SceneGuardGameTrace", relativePath: "Assets/Editor/SceneGuardGameVsSceneViewTrace.cs"),
@@ -64,6 +73,7 @@ struct UnityInjector {
     private var targetSpecs: [InjectorTarget] {
         switch channel {
         case .innerSafe: return Self.innerSafeSpecs
+        case .sceneGuard: return Self.sceneGuardSpecs
         case .sceneGuardTools: return Self.sceneGuardToolsSpecs
         }
     }
@@ -74,7 +84,7 @@ struct UnityInjector {
         switch channel {
         case .innerSafe:
             return base.appendingPathComponent(spec.basename)
-        case .sceneGuardTools:
+        case .sceneGuard, .sceneGuardTools:
             return base.appendingPathComponent(spec.relativePath)
         }
     }

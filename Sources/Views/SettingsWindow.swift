@@ -195,76 +195,48 @@ struct SettingsWindow: View {
 
                         Divider()
 
-                        Text("Bundled Templates").font(.headline)
-
-                        VStack(alignment: .leading, spacing: 4) {
-                            ForEach(state.injectorTargets) { t in
-                                HStack(spacing: 8) {
-                                    Image(systemName: iconForStatus(t.status))
-                                        .foregroundColor(colorForStatus(t.status))
-                                        .frame(width: 18)
-                                    Text(t.basename)
-                                        .font(.system(.body, design: .monospaced))
-                                    Spacer()
-                                    Text(t.status.rawValue)
-                                        .font(.system(.caption, design: .monospaced))
-                                        .foregroundColor(colorForStatus(t.status))
-                                }
-                            }
-                        }
-
-                        HStack {
-                            Button("Apply unity inner safe") { state.applyInnerSafe() }
-                                .buttonStyle(.borderedProminent)
-                                .disabled(!canApply())
-                            Button("Re-check") { state.refreshInjector() }
-                            if !canApply() {
-                                Text(applyDisabledReason())
-                                    .font(.caption)
-                                    .foregroundColor(.secondary)
-                            }
-                        }
-
-                        applyResultsPanel(state.lastApplyResults)
+                        injectorChannelSection(
+                            title: "1. Mac GPU Safe Guard (runtime)",
+                            subtitle: "Play-mode protection scripts under Assets/scripts/.",
+                            targets: state.injectorTargets,
+                            results: state.lastApplyResults,
+                            applyLabel: "Apply Mac GPU Safe Guard",
+                            onApply: { state.applyInnerSafe() },
+                            onRecheck: { state.refreshInjector() },
+                            canApply: canApplyInnerSafe(),
+                            disabledReason: applyInnerSafeDisabledReason(),
+                            showBasenameOnly: true
+                        )
 
                         Divider()
 
-                        Text("SceneGuard Tools (Mac Editor)").font(.headline)
-                        Text("Separate channel from runtime GPU safe scripts. Copies Assets/Editor/SceneGuard* into the Unity project.")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
+                        injectorChannelSection(
+                            title: "2. SceneGuard (SceneView fix)",
+                            subtitle: "Editor fallback renderer + shaders. Required for Mac SceneView.",
+                            targets: state.sceneGuardTargets,
+                            results: state.lastSceneGuardApplyResults,
+                            applyLabel: "Apply SceneGuard",
+                            onApply: { state.applySceneGuard() },
+                            onRecheck: { state.refreshSceneGuard() },
+                            canApply: canApplySceneGuard(),
+                            disabledReason: applySceneGuardDisabledReason(),
+                            showBasenameOnly: false
+                        )
 
-                        VStack(alignment: .leading, spacing: 4) {
-                            ForEach(state.sceneGuardToolsTargets) { t in
-                                HStack(spacing: 8) {
-                                    Image(systemName: iconForStatus(t.status))
-                                        .foregroundColor(colorForStatus(t.status))
-                                        .frame(width: 18)
-                                    Text(t.relativePath)
-                                        .font(.system(.caption, design: .monospaced))
-                                        .lineLimit(1)
-                                        .truncationMode(.middle)
-                                    Spacer()
-                                    Text(t.status.rawValue)
-                                        .font(.system(.caption2, design: .monospaced))
-                                        .foregroundColor(colorForStatus(t.status))
-                                }
-                            }
-                        }
+                        Divider()
 
-                        HStack {
-                            Button("Apply SceneGuard tools") { state.applySceneGuardTools() }
-                                .buttonStyle(.borderedProminent)
-                                .disabled(!canApplyTools())
-                            Button("Re-check") { state.refreshSceneGuardTools() }
-                            if !canApplyTools() {
-                                Text(applyToolsDisabledReason())
-                                    .font(.caption)
-                                    .foregroundColor(.secondary)
-                            }
-                        }
-
-                        applyResultsPanel(state.lastSceneGuardApplyResults)
+                        injectorChannelSection(
+                            title: "3. SceneGuard Tools (diagnostics)",
+                            subtitle: "Optional trace / disable-feature helpers. Separate apply channel.",
+                            targets: state.sceneGuardToolsTargets,
+                            results: state.lastSceneGuardToolsApplyResults,
+                            applyLabel: "Apply SceneGuard tools",
+                            onApply: { state.applySceneGuardTools() },
+                            onRecheck: { state.refreshSceneGuardTools() },
+                            canApply: canApplySceneGuardTools(),
+                            disabledReason: applySceneGuardToolsDisabledReason(),
+                            showBasenameOnly: false
+                        )
                     }
                     .padding(12)
                     .background(Color(NSColor.controlBackgroundColor))
@@ -397,6 +369,7 @@ struct SettingsWindow: View {
         .onAppear {
             if state.p4Env.user.isEmpty { state.refreshP4() }
             state.refreshInjector()
+            state.refreshSceneGuard()
             state.refreshSceneGuardTools()
             state.refreshSnapshotSizes()
             state.refreshUnityTmpSizes()
@@ -455,34 +428,76 @@ struct SettingsWindow: View {
         }
     }
 
-    private func canApply() -> Bool {
-        guard !state.unityProjectPath.isEmpty else { return false }
-        guard !state.defaultChangelist.isEmpty else { return false }
-        let needsAction = state.injectorTargets.contains { $0.status == .drift || $0.status == .missing }
-        return needsAction
+    @ViewBuilder
+    private func injectorChannelSection(
+        title: String,
+        subtitle: String,
+        targets: [InjectorTarget],
+        results: [InjectorResult],
+        applyLabel: String,
+        onApply: @escaping () -> Void,
+        onRecheck: @escaping () -> Void,
+        canApply: Bool,
+        disabledReason: String,
+        showBasenameOnly: Bool
+    ) -> some View {
+        Text(title).font(.headline)
+        Text(subtitle)
+            .font(.caption)
+            .foregroundColor(.secondary)
+
+        VStack(alignment: .leading, spacing: 4) {
+            ForEach(targets) { t in
+                HStack(spacing: 8) {
+                    Image(systemName: iconForStatus(t.status))
+                        .foregroundColor(colorForStatus(t.status))
+                        .frame(width: 18)
+                    Text(showBasenameOnly ? t.basename : t.relativePath)
+                        .font(.system(showBasenameOnly ? .body : .caption, design: .monospaced))
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                    Spacer()
+                    Text(t.status.rawValue)
+                        .font(.system(.caption, design: .monospaced))
+                        .foregroundColor(colorForStatus(t.status))
+                }
+            }
+        }
+
+        HStack {
+            Button(applyLabel, action: onApply)
+                .buttonStyle(.borderedProminent)
+                .disabled(!canApply)
+            Button("Re-check", action: onRecheck)
+            if !canApply {
+                Text(disabledReason)
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            }
+        }
+
+        applyResultsPanel(results)
     }
 
-    private func applyDisabledReason() -> String {
+    private func canApplyChannel(_ targets: [InjectorTarget]) -> Bool {
+        guard !state.unityProjectPath.isEmpty else { return false }
+        guard !state.defaultChangelist.isEmpty else { return false }
+        return targets.contains { $0.status == .drift || $0.status == .missing }
+    }
+
+    private func applyChannelDisabledReason(_ targets: [InjectorTarget]) -> String {
         if state.unityProjectPath.isEmpty { return "set Unity project path first" }
         if state.defaultChangelist.isEmpty { return "select a default CL first" }
-        if !state.injectorTargets.contains(where: { $0.status == .drift || $0.status == .missing }) {
+        if !targets.contains(where: { $0.status == .drift || $0.status == .missing }) {
             return "all in sync — nothing to apply"
         }
         return ""
     }
 
-    private func canApplyTools() -> Bool {
-        guard !state.unityProjectPath.isEmpty else { return false }
-        guard !state.defaultChangelist.isEmpty else { return false }
-        return state.sceneGuardToolsTargets.contains { $0.status == .drift || $0.status == .missing }
-    }
-
-    private func applyToolsDisabledReason() -> String {
-        if state.unityProjectPath.isEmpty { return "set Unity project path first" }
-        if state.defaultChangelist.isEmpty { return "select a default CL first" }
-        if !state.sceneGuardToolsTargets.contains(where: { $0.status == .drift || $0.status == .missing }) {
-            return "all in sync — nothing to apply"
-        }
-        return ""
-    }
+    private func canApplyInnerSafe() -> Bool { canApplyChannel(state.injectorTargets) }
+    private func applyInnerSafeDisabledReason() -> String { applyChannelDisabledReason(state.injectorTargets) }
+    private func canApplySceneGuard() -> Bool { canApplyChannel(state.sceneGuardTargets) }
+    private func applySceneGuardDisabledReason() -> String { applyChannelDisabledReason(state.sceneGuardTargets) }
+    private func canApplySceneGuardTools() -> Bool { canApplyChannel(state.sceneGuardToolsTargets) }
+    private func applySceneGuardToolsDisabledReason() -> String { applyChannelDisabledReason(state.sceneGuardToolsTargets) }
 }
