@@ -1,5 +1,12 @@
 # MacGPUSafeGuard Changelog
 
+## SceneGuard Unity patches — 2026-06-08
+
+- Git mirror of verified Mac SceneView fallback under `SceneGuard/unity-patches/`
+- Stable path: original materials + gizmos + opaque water placeholder; play mirror disabled
+- Devlog: `SceneGuard/devlogs/2026-06-08-sceneview-fallback-stable.md`
+- App injection not included in this commit (Phase 2)
+
 ## v1.7.0 - 2026-05-28 - Unity Tmp Cleanup
 
 ### 新增功能
