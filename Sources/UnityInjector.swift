@@ -39,10 +39,6 @@ struct UnityInjector {
             id: "MacGPUConfig",
             relativePath: "Assets/scripts/Performance/MacGPUConfig.cs"
         ),
-        InjectorTarget(
-            id: "SetURPSettings",
-            relativePath: "Assets/scripts/Framework/hot_update/ScriptLoader/Steps/SetURPSettings.cs"
-        ),
     ]
 
     // 2. SceneGuard core — SceneView fallback repair (P4 CL 200404)

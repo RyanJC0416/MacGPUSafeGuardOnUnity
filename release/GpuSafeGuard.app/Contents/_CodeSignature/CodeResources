@@ -8,13 +8,93 @@
 		<data>
 		P2pp1ModLVSwP34gau8Lnw1KGpk=
 		</data>
+		<key>Resources/entitlements.plist</key>
+		<data>
+		HPt8iiZhAHiJlXhu7GuNkxIbiCU=
+		</data>
 		<key>Resources/kill-unity.sh</key>
 		<data>
 		e4ICWUbeB9hw92okWMS1PLwzWAk=
 		</data>
+		<key>Resources/scene-guard-tools/Assets/Editor/SceneGuardDisableAllFeatures.cs</key>
+		<data>
+		1C/jw+S0S8mDdSfsK9Dkx1QsPAg=
+		</data>
+		<key>Resources/scene-guard-tools/Assets/Editor/SceneGuardDisableAllFeatures.cs.meta</key>
+		<data>
+		0drFa0E+GbaFltcSlZqVX6tiXY4=
+		</data>
+		<key>Resources/scene-guard-tools/Assets/Editor/SceneGuardGameVsSceneViewTrace.cs</key>
+		<data>
+		uZrf2sp38+3PTOnnN6++b3oh7MQ=
+		</data>
+		<key>Resources/scene-guard-tools/Assets/Editor/SceneGuardGameVsSceneViewTrace.cs.meta</key>
+		<data>
+		yaZOyvA+Wku3Wmndq4+5PcnF5RY=
+		</data>
+		<key>Resources/scene-guard-tools/Assets/Editor/SceneGuardSceneViewPipelineTrace.cs</key>
+		<data>
+		1Oz0O5jhnbAw63DtF29ErxZuE70=
+		</data>
+		<key>Resources/scene-guard-tools/Assets/Editor/SceneGuardSceneViewPipelineTrace.cs.meta</key>
+		<data>
+		7lvq/Fq+5lRxBFoClpYn2ZP5UZQ=
+		</data>
+		<key>Resources/scene-guard/Assets/Editor/SceneGuard.meta</key>
+		<data>
+		ezEKlz+GFZPvOOSoLcwTijeJ+y8=
+		</data>
+		<key>Resources/scene-guard/Assets/Editor/SceneGuard/SceneGuardSceneViewEcoEngineHooks.cs</key>
+		<data>
+		wEk81r9fTdkeTh7lKLIlSkQcMJA=
+		</data>
+		<key>Resources/scene-guard/Assets/Editor/SceneGuard/SceneGuardSceneViewEcoEngineHooks.cs.meta</key>
+		<data>
+		S7DoWkXjgb09GKRhYvmhkUp7PcQ=
+		</data>
+		<key>Resources/scene-guard/Assets/Editor/SceneGuardSceneViewFallbackRenderer.cs</key>
+		<data>
+		oZPUVz+cwOqa1IvjkKLZNhpmntw=
+		</data>
+		<key>Resources/scene-guard/Assets/Editor/SceneGuardSceneViewFallbackRenderer.cs.meta</key>
+		<data>
+		Epc/r4nEuYFnK7wik0l0q4pC7f0=
+		</data>
+		<key>Resources/scene-guard/Assets/Editor/SceneGuardSceneViewLitFallback.shader</key>
+		<data>
+		yJw2RkivQyi8rCRRBjYe4XQsJNg=
+		</data>
+		<key>Resources/scene-guard/Assets/Editor/SceneGuardSceneViewLitFallback.shader.meta</key>
+		<data>
+		Fr5Fgb/qWPFRzXtds5rYWcxSOkc=
+		</data>
+		<key>Resources/scene-guard/Assets/Editor/SceneGuardSceneViewSkyboxFallback.shader</key>
+		<data>
+		W2zA3JjYZ4ZoeUq9dbkimLl0gNY=
+		</data>
+		<key>Resources/scene-guard/Assets/Editor/SceneGuardSceneViewSkyboxFallback.shader.meta</key>
+		<data>
+		cLfJXsfsq3eIhchleaAUAHfull4=
+		</data>
+		<key>Resources/scene-guard/Assets/Editor/SceneGuardSceneViewWaterFallback.shader</key>
+		<data>
+		Rygqbn2uoTbNEXKXVCCzINOZu4g=
+		</data>
+		<key>Resources/scene-guard/Assets/Editor/SceneGuardSceneViewWaterFallback.shader.meta</key>
+		<data>
+		m5mKeLFCgbnUu7DSmyZwoMFMxJM=
+		</data>
+		<key>Resources/templates/MacGPUConfig.cs</key>
+		<data>
+		xpu7FncYiDvTHn7EYC4DGDucoGk=
+		</data>
+		<key>Resources/templates/MacGPUSafeGuard.cs</key>
+		<data>
+		7x2H9EmZGu3jBF54s6sHnwL7ni8=
+		</data>
 		<key>Resources/watchdog.sh.tmpl</key>
 		<data>
-		kN2lxg2ja+iktgM04JVhyZc2xEg=
+		Ceqn0CKAD61ZLGU3oJx0C/drddk=
 		</data>
 	</dict>
 	<key>files2</key>
@@ -26,6 +106,13 @@
 			jEMayCiZ/25Is61yICRl8lB2DdzKWfrjdVWeyUUmM0k=
 			</data>
 		</dict>
+		<key>Resources/entitlements.plist</key>
+		<dict>
+			<key>hash2</key>
+			<data>
+			2zbIllNCcBCwv72aRKrDYVIJuD2Gp4ppbGbMuYmRytE=
+			</data>
+		</dict>
 		<key>Resources/kill-unity.sh</key>
 		<dict>
 			<key>hash2</key>
@@ -33,11 +120,144 @@
 			FuzrjhS+MIjosHEAGnr8QQsP1weyn/06AhmxquILhXY=
 			</data>
 		</dict>
+		<key>Resources/scene-guard-tools/Assets/Editor/SceneGuardDisableAllFeatures.cs</key>
+		<dict>
+			<key>hash2</key>
+			<data>
+			NsJMDG4omsQLyHdR5qLGTL5ubHGX20lsNfaNFrPxnLE=
+			</data>
+		</dict>
+		<key>Resources/scene-guard-tools/Assets/Editor/SceneGuardDisableAllFeatures.cs.meta</key>
+		<dict>
+			<key>hash2</key>
+			<data>
+			2yP1WGfGtBFz7dgLs/I59U19EvPE7KaLN5JfePa8iO0=
+			</data>
+		</dict>
+		<key>Resources/scene-guard-tools/Assets/Editor/SceneGuardGameVsSceneViewTrace.cs</key>
+		<dict>
+			<key>hash2</key>
+			<data>
+			x2UdH8RnvZTdD7/pmOhhXIB/TQ3uE9uv9v832aXMYqc=
+			</data>
+		</dict>
+		<key>Resources/scene-guard-tools/Assets/Editor/SceneGuardGameVsSceneViewTrace.cs.meta</key>
+		<dict>
+			<key>hash2</key>
+			<data>
+			btfOuLakFt6LL6/dP7GI71iHrANhaYbLP1iq+cmXGe8=
+			</data>
+		</dict>
+		<key>Resources/scene-guard-tools/Assets/Editor/SceneGuardSceneViewPipelineTrace.cs</key>
+		<dict>
+			<key>hash2</key>
+			<data>
+			RWTRWfObPOLrcWK4koFJfhdyr76ms8bQW71kffEd+yQ=
+			</data>
+		</dict>
+		<key>Resources/scene-guard-tools/Assets/Editor/SceneGuardSceneViewPipelineTrace.cs.meta</key>
+		<dict>
+			<key>hash2</key>
+			<data>
+			qumDjMO2sMH+sgAzrj+Yrnntf4UGxCRNpXxfVCZj1vY=
+			</data>
+		</dict>
+		<key>Resources/scene-guard/Assets/Editor/SceneGuard.meta</key>
+		<dict>
+			<key>hash2</key>
+			<data>
+			xpIQH4TGtACU01GIoZ7Fydno1Opi4LUWEh9Wz9D3XVE=
+			</data>
+		</dict>
+		<key>Resources/scene-guard/Assets/Editor/SceneGuard/SceneGuardSceneViewEcoEngineHooks.cs</key>
+		<dict>
+			<key>hash2</key>
+			<data>
+			LjZEylcQI3JRlvIFmyuq6OcVDRdz83X7Tt1ukechN94=
+			</data>
+		</dict>
+		<key>Resources/scene-guard/Assets/Editor/SceneGuard/SceneGuardSceneViewEcoEngineHooks.cs.meta</key>
+		<dict>
+			<key>hash2</key>
+			<data>
+			koHCAu75lZLsewLgipYPXc03dZpjAPdyRUgwiclCRgI=
+			</data>
+		</dict>
+		<key>Resources/scene-guard/Assets/Editor/SceneGuardSceneViewFallbackRenderer.cs</key>
+		<dict>
+			<key>hash2</key>
+			<data>
+			7t8jaUo+L6TPgkYw14PfaUg7axEPOpHrwRh9UyUKtDk=
+			</data>
+		</dict>
+		<key>Resources/scene-guard/Assets/Editor/SceneGuardSceneViewFallbackRenderer.cs.meta</key>
+		<dict>
+			<key>hash2</key>
+			<data>
+			UWadG/gXISFQLV8XyqtoBHZ+jSkwW86F0bdzjhlMWp8=
+			</data>
+		</dict>
+		<key>Resources/scene-guard/Assets/Editor/SceneGuardSceneViewLitFallback.shader</key>
+		<dict>
+			<key>hash2</key>
+			<data>
+			qifaaPewyhP4KBolj+ErB3D12YPqw4ewDoa/HRCBvQM=
+			</data>
+		</dict>
+		<key>Resources/scene-guard/Assets/Editor/SceneGuardSceneViewLitFallback.shader.meta</key>
+		<dict>
+			<key>hash2</key>
+			<data>
+			9ratQgrHs/BXwUijfLsmx+zjQMXHO62n66oG+Ayge/4=
+			</data>
+		</dict>
+		<key>Resources/scene-guard/Assets/Editor/SceneGuardSceneViewSkyboxFallback.shader</key>
+		<dict>
+			<key>hash2</key>
+			<data>
+			9Eov4n16xgXTeizXDw10yoL9949Om/hEBQ8Q483b4nY=
+			</data>
+		</dict>
+		<key>Resources/scene-guard/Assets/Editor/SceneGuardSceneViewSkyboxFallback.shader.meta</key>
+		<dict>
+			<key>hash2</key>
+			<data>
+			BER/Z5mEHFFHUMq8HRjqavwaVzD07OgY4TPkfV4rYyw=
+			</data>
+		</dict>
+		<key>Resources/scene-guard/Assets/Editor/SceneGuardSceneViewWaterFallback.shader</key>
+		<dict>
+			<key>hash2</key>
+			<data>
+			n/nwPFY82oXMxik4ZSQPAf0DMcAqd2fRObI+3SJESDw=
+			</data>
+		</dict>
+		<key>Resources/scene-guard/Assets/Editor/SceneGuardSceneViewWaterFallback.shader.meta</key>
+		<dict>
+			<key>hash2</key>
+			<data>
+			nvAtbAQC25ssVAEMXODtFISICcbVxyq1iOFr+H/I4SE=
+			</data>
+		</dict>
+		<key>Resources/templates/MacGPUConfig.cs</key>
+		<dict>
+			<key>hash2</key>
+			<data>
+			6ht5iUJ1e9J5hO9Nf4jyLQ51/PWpnEzXMw/AagcjfE4=
+			</data>
+		</dict>
+		<key>Resources/templates/MacGPUSafeGuard.cs</key>
+		<dict>
+			<key>hash2</key>
+			<data>
+			IbK5toczusOaRKSCWgSlmUGoUmePclaCaOFHiKd0+wY=
+			</data>
+		</dict>
 		<key>Resources/watchdog.sh.tmpl</key>
 		<dict>
 			<key>hash2</key>
 			<data>
-			/RiO1oa7plp/a79cWAf6tffM0EgJ327FpCJCIFP8mGs=
+			aDoK1Mxxt/QIZRIlfiFIIdTmOuAFEcczjAKRPD+Ze10=
 			</data>
 		</dict>
 	</dict>

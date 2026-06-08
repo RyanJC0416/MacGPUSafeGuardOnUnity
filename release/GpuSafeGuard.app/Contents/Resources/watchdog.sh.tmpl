@@ -65,7 +65,63 @@ recent_issue_present() {
   [ -f "$UNITY_LOG" ] || return 1
   local recent_log
   recent_log=$(tail -n 600 "$UNITY_LOG" 2>/dev/null || true)
-  [[ "$recent_log" =~ The\ RT\ of\ per\ object\ shadow\ is\ out\ of\ range\!|Skipping\ draw\ calls\ to\ avoid\ crashing|ComputeBuffer.*none\ provided ]]
+  [[ "$recent_log" =~ The\ RT\ of\ per\ object\ shadow\ is\ out\ of\ range\!|Skipping\ draw\ calls\ to\ avoid\ crashing|ComputeBuffer.*none\ provided|\[BigWorld\]Material\ is\ null ]]
+}
+
+# Classify freeze root cause by scanning sample stack + Editor.log tail patterns.
+# Returns a human-readable category string.
+classify_freeze_cause() {
+  local sample_file="$1"
+  local log_file="${2:-$UNITY_LOG}"
+
+  local sample_head=""
+  if [ -f "$sample_file" ]; then
+    sample_head=$(head -200 "$sample_file" 2>/dev/null || true)
+  fi
+
+  local log_tail=""
+  if [ -f "$log_file" ]; then
+    log_tail=$(tail -n 300 "$log_file" 2>/dev/null || true)
+  fi
+
+  local causes=()
+
+  # 1. ComputeShader kernel compilation hang
+  if echo "$sample_head" | grep -q "ComputeShader_CUSTOM_Dispatch\|ComputeShader::CreateKernelVariant\|ComputeShader::GetKernelVariant"; then
+    causes+=("ComputeShader kernel compilation hang (Metal compiler blocking main thread)")
+  fi
+
+  # 2. BigWorld resource loading deadlock
+  if echo "$log_tail" | grep -q "\[BigWorld\]Material is null"; then
+    causes+=("BigWorld entity/material async loading errors — possible resource pipeline deadlock")
+  fi
+
+  # 3. ShadowCache / Metal GPU timeout
+  if echo "$log_tail" | grep -qE "The RT of per object shadow is out of range|Skipping draw calls to avoid crashing"; then
+    causes+=("ShadowCache out-of-range / draw calls skipped — likely Metal GPU timeout")
+  fi
+
+  # 4. MagicaCloth GPU hang
+  if echo "$log_tail" | grep -q "MagicaCloth\|MagicaManager" && echo "$sample_head" | grep -q "Magica\|cloth\|Cloth"; then
+    causes+=("MagicaCloth compute pipeline hang")
+  fi
+
+  # 5. General main-thread deadlock
+  if echo "$sample_head" | grep -q "mono_runtime_invoke\|semaphore_wait_trap\|__psynch_" && ! echo "$sample_head" | grep -q "ComputeShader"; then
+    causes+=("main thread deadlock (semaphore/monitor wait)")
+  fi
+
+  # 6. Async asset loading hang
+  if echo "$log_tail" | grep -q "AsyncGameObjectPool\|Async.*Load\|AssetBundle"; then
+    causes+=("async asset/resource loading detected in recent log — possible I/O or pool starvation")
+  fi
+
+  if [ ${#causes[@]} -eq 0 ]; then
+    echo "uncategorized (generic freeze)"
+  else
+    local IFS="; "
+    echo "${causes[*]}"
+  fi
 }
 
 extract_signature() {
@@ -137,6 +193,7 @@ REPEAT_COUNT=${REPEAT_COUNT:-0}
 STAGNANT_COUNT=${STAGNANT_COUNT:-0}
 LAST_LOG_SIG=${LAST_LOG_SIG:-unknown}
 LAST_CPU_TIME=${LAST_CPU_TIME:-}
+LAST_CPU_TIME_AT_STAGNANT_START=${LAST_CPU_TIME_AT_STAGNANT_START:-}
 EDIT_SKIP_LOGGED=${EDIT_SKIP_LOGGED:-0}
 EOF
 }
@@ -148,6 +205,7 @@ load_state() {
   STAGNANT_COUNT=0
   LAST_LOG_SIG="unknown"
   LAST_CPU_TIME=""
+  LAST_CPU_TIME_AT_STAGNANT_START=""
   EDIT_SKIP_LOGGED=0
   if [ -f "$STATE_FILE" ]; then
     # shellcheck disable=SC1090
@@ -175,10 +233,22 @@ snapshot_and_kill() {
     sample "$pid" 5 -file "$sample_file" >/dev/null 2>&1 || true
   fi
 
+  # Classify root cause
+  local classification
+  classification=$(classify_freeze_cause "$sample_file" "$snapshot_file")
+
+  # Extract top blocked call chain from sample for quick diagnosis
+  local top_stack
+  top_stack=""
+  if [ -f "$sample_file" ]; then
+    top_stack=$(grep -m8 '^    +' "$sample_file" 2>/dev/null | head -8 | sed 's/^[[:space:]]*//' || true)
+  fi
+
   {
     echo "timestamp=$(ts)"
     echo "pid=$pid"
     echo "reason=$reason"
+    echo "classification=$classification"
     echo "project=$PROJECT_PATH"
     echo '--- heartbeat ---'
     if [ -f "$HEARTBEAT_PATH" ]; then
@@ -197,15 +267,24 @@ snapshot_and_kill() {
     fi
     echo '--- ps ---'
     ps -p "$pid" -o pid,ppid,stat,%cpu,etime,command || true
+    echo '--- top blocked call chain (first 8 frames) ---'
+    printf '%s\n' "$top_stack"
     echo '--- recent MacGPUSafeGuard ---'
     [ -f "$snapshot_file" ] && grep -n '\[MacGPUSafeGuard\]' "$snapshot_file" | tail -40 || true
     echo '--- recent ShadowCache out of range ---'
     [ -f "$snapshot_file" ] && grep -n 'The RT of per object shadow is out of range!' "$snapshot_file" | tail -40 || true
     echo '--- recent crash-skipping draws ---'
     [ -f "$snapshot_file" ] && grep -n 'Skipping draw calls to avoid crashing\|ComputeBuffer.*none provided' "$snapshot_file" | tail -40 || true
+    echo '--- recent BigWorld errors ---'
+    [ -f "$snapshot_file" ] && grep -n '\[BigWorld\]Material is null\|\[BigWorld\].*Error\|BigWorld.*deadlock\|BigWorld.*hang' "$snapshot_file" | tail -20 || true
+    echo '--- recent ComputeShader / Metal warnings ---'
+    [ -f "$snapshot_file" ] && grep -n 'ComputeShader\|Metal.*error\|Metal.*timeout\|GFXDEVICE.*error\|Execution of the command buffer was aborted' "$snapshot_file" | tail -20 || true
+    echo '--- last 30 log lines ---'
+    [ -f "$snapshot_file" ] && tail -30 "$snapshot_file" || true
   } > "$summary_file"
 
   log "freeze detected: $reason"
+  log "classification: $classification"
   log "snapshot saved => $snapshot_file"
   log "sample saved => $sample_file"
   log "summary saved => $summary_file"
@@ -220,6 +299,14 @@ snapshot_and_kill() {
 }
 
 monitor_loop() {
+  # Cleanup function for temporary files
+  cleanup_temps() {
+    # Clean up any sample_check files from current or previous runs
+    find "$BASE_DIR" -maxdepth 1 -name "sample_check_*.txt" -type f -mmin +10 -delete 2>/dev/null || true
+  }
+  
+  trap cleanup_temps EXIT
+
   load_state
   log "watchdog loop started; project=$PROJECT_PATH poll=${POLL_SECONDS}s"
 
@@ -254,7 +341,7 @@ monitor_loop() {
     fi
 
     local tmp_sample
-    tmp_sample=$(mktemp "$BASE_DIR/sample_check.XXXXXX.txt")
+    tmp_sample=$(mktemp "$BASE_DIR/sample_check_XXXXXX.txt")
     sample "$pid" "$SAMPLE_SECONDS" 1 > "$tmp_sample" 2>&1 || true
 
     local sig
@@ -313,7 +400,9 @@ monitor_loop() {
       continue
     fi
 
-    # Play Mode editor-log stagnant kill (covers logic dead-loops that don't freeze render stack)
+    # Play Mode editor-log stagnant kill (covers logic dead-loops that don't freeze render stack).
+    # ALSO requires CPU time stagnant: if CPU is advancing, the process is busy working (shader
+    # compile / rendering / asset import) — killing it would limit performance for no reason.
     if [ "$STAGNANT_COUNT" -ge "$STAGNANT_THRESHOLD" ]; then
       if ! is_playmode_active; then
         if [ "${EDIT_SKIP_LOGGED:-0}" != "1" ]; then
@@ -326,7 +415,15 @@ monitor_loop() {
         sleep "$POLL_SECONDS"
         continue
       fi
-      snapshot_and_kill "$pid" "editor log stagnant for $((STAGNANT_COUNT * POLL_SECONDS))s in play mode" "$tmp_sample"
+      # Only kill if CPU time has NOT advanced during the stagnant period.
+      # If the process is burning CPU, it's working — let it run.
+      if [ -n "$current_cpu_time" ] && [ "$current_cpu_time" = "$LAST_CPU_TIME_AT_STAGNANT_START" ]; then
+        snapshot_and_kill "$pid" "editor log stagnant for $((STAGNANT_COUNT * POLL_SECONDS))s in play mode (cpu stagnant)" "$tmp_sample"
+      else
+        log "log stagnant for $((STAGNANT_COUNT * POLL_SECONDS))s but cpu still advancing ($LAST_CPU_TIME_AT_STAGNANT_START -> $current_cpu_time), skipping kill"
+        STAGNANT_COUNT=0
+        LAST_LOG_SIG="$current_log_sig"
+      fi
       rm -f "$tmp_sample"
       LAST_PID=""
       LAST_SIG_B64=""
@@ -334,9 +431,15 @@ monitor_loop() {
       STAGNANT_COUNT=0
       LAST_LOG_SIG="unknown"
       LAST_CPU_TIME=""
+      LAST_CPU_TIME_AT_STAGNANT_START=""
       write_state
       sleep "$POLL_SECONDS"
       continue
+    fi
+
+    # Track CPU time when log first becomes stagnant, for use in the kill check above
+    if [ "$STAGNANT_COUNT" -eq 1 ] && [ -z "${LAST_CPU_TIME_AT_STAGNANT_START:-}" ]; then
+      LAST_CPU_TIME_AT_STAGNANT_START="$current_cpu_time"
     fi
 
     # C# heartbeat dead-loop detection (covers logic dead-loops that don't freeze render stack or log)

@@ -1,5 +1,12 @@
 # MacGPUSafeGuard Changelog
 
+## v1.8.1 - 2026-06-08 - Mac GPU Safe Guard apply scope trim
+
+### 变更
+
+- **Mac GPU Safe Guard** Apply / Re-check 不再包含 `SetURPSettings.cs`（仅保留 `MacGPUSafeGuard.cs` + `MacGPUConfig.cs`）
+- 删除 bundled `Resources/templates/SetURPSettings.cs`（项目内 URP 切换脚本维持 depot 原版即可）
+
 ## v1.8.0 - 2026-06-08 - SceneGuard three-channel apply
 
 ### 新增
