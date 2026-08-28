@@ -43,6 +43,7 @@ public static class SceneGuardSceneViewFallbackRenderer
     private const string MirrorExcludeUiPrefsKey = "SceneGuard.SceneViewFallbackRenderer.MirrorExcludeUi";
     private const string CommandFile = "Library/SceneGuard/command.txt";
     private static readonly int BaseColorId = Shader.PropertyToID("_BaseColor");
+    private static readonly int MainTexId = Shader.PropertyToID("_MainTex");
     private static readonly int LightDirId = Shader.PropertyToID("_LightDir");
     private static readonly int LightColorId = Shader.PropertyToID("_LightColor");
     private static readonly int AmbientColorId = Shader.PropertyToID("_AmbientColor");
@@ -75,6 +76,7 @@ public static class SceneGuardSceneViewFallbackRenderer
     private static Camera playMirrorCamera;
     private static RenderTexture playMirrorRT;
     private static RenderTexture opaqueCopyRT;
+    private static Texture2D neutralLightmapTex;
     private static bool persistentFallbackAttached;
     private static bool persistentBeginAttached;
     private static int lastDrawnCount = -1;
@@ -123,14 +125,15 @@ public static class SceneGuardSceneViewFallbackRenderer
             EditorPrefs.SetBool(PlayMirrorStabilityPrefsKey, true);
         }
 
-        // No Performance menu — fixed stable defaults on every Editor load.
+        // No Performance menu — restore the last visible SceneView path (LDR lit overlay).
         EditorPrefs.SetBool(EditorPrefsKey, true);
         EditorPrefs.SetInt(RepairModePrefsKey, (int)RepairMode.SubmitThenOriginalMaterials);
         EditorPrefs.SetBool(DiagnosticsPrefsKey, false);
         EditorPrefs.SetBool("SceneGuard.EcoEngineHooks.Enabled", false);
 
+        SceneGuardSceneViewEcoEngineHooks.Detach();
         ApplyPersistentFallbackState();
-        Debug.Log("[SceneGuard] Mac SceneView repair ON (Submit + Original Materials). EcoHooks OFF.");
+        Debug.Log("[SceneGuard] Mac SceneView repair ON (LDR lit overlay, last visible path). EcoHooks OFF.");
     }
 
     private static void SetRepairMode(RepairMode mode)
@@ -231,7 +234,7 @@ public static class SceneGuardSceneViewFallbackRenderer
             Vector3 dir = -main.transform.forward;
             Shader.SetGlobalVector(MainLightPositionId, new Vector4(dir.x, dir.y, dir.z, 0f));
 
-            Color lightColor = main.color * main.intensity;
+            Color lightColor = main.color * Mathf.Clamp(main.intensity, 0.2f, 1.25f);
             Shader.SetGlobalColor(MainLightColorId, lightColor);
         }
         else
@@ -250,8 +253,31 @@ public static class SceneGuardSceneViewFallbackRenderer
     /// </summary>
     private static void StabilizeSceneViewShaderGlobals()
     {
-        Shader.SetGlobalFloat(ExposureEnabledId, 0f);
         Shader.SetGlobalFloat(VolumetricCloudsEnabledId, 0f);
+    }
+
+    /// <summary>
+    /// Baking sets are null on Mac SceneView, so original shaders sample missing lightmaps
+    /// and clip to white. Bind a mid-gray lightmap for this pass only, then restore.
+    /// </summary>
+    private static void BindNeutralLightmaps()
+    {
+        if (neutralLightmapTex == null)
+        {
+            neutralLightmapTex = new Texture2D(1, 1, TextureFormat.RGBA32, false, true)
+            {
+                name = "SceneGuard_NeutralLightmap",
+                hideFlags = HideFlags.HideAndDontSave,
+                filterMode = FilterMode.Point,
+                wrapMode = TextureWrapMode.Clamp
+            };
+            neutralLightmapTex.SetPixel(0, 0, new Color(0.55f, 0.55f, 0.55f, 1f));
+            neutralLightmapTex.Apply(false, true);
+        }
+
+        Shader.SetGlobalTexture("unity_Lightmap", neutralLightmapTex);
+        Shader.SetGlobalTexture("unity_LightmapInd", neutralLightmapTex);
+        Shader.SetGlobalTexture("unity_ShadowMask", Texture2D.whiteTexture);
     }
 
     private static void CaptureLightingStateOnce()
@@ -691,23 +717,15 @@ public static class SceneGuardSceneViewFallbackRenderer
         cmd.ClearRenderTarget(clearDepth: true, clearColor: true, backgroundColor: Color.black);
 
         if (ShouldDrawSkybox(camera))
-        {
-            Mesh skyMesh = GetSkyboxMesh();
-            if (skyMesh != null)
-            {
-                float radius = Mathf.Max(camera.farClipPlane * 0.95f, camera.nearClipPlane + 1f);
-                Matrix4x4 skyMatrix = Matrix4x4.TRS(camera.transform.position, Quaternion.identity, Vector3.one * radius);
-                if (!TryDrawSceneSkybox(cmd, skyMesh, skyMatrix))
-                    DrawSkybox(cmd, camera, GetSkyboxMaterial(), useSceneSkyboxOnly: false);
-            }
-        }
+            DrawSkybox(cmd, camera, GetSkyboxMaterial(), useSceneSkyboxOnly: false);
 
         context.ExecuteCommandBuffer(cmd);
         cmd.Dispose();
 
-        DrawCulledRenderers(context, camera, cullResults, overrideMaterial: null, transparentPass: false);
+        Material litOverride = GetLitFallbackMaterial(camera);
+        DrawCulledRenderers(context, camera, cullResults, overrideMaterial: litOverride, transparentPass: false);
         BindSceneColorForTransparentPass(context, camera, sceneRT);
-        DrawCulledRenderers(context, camera, cullResults, overrideMaterial: null, transparentPass: true);
+        DrawCulledRenderers(context, camera, cullResults, overrideMaterial: litOverride, transparentPass: true);
         DrawWaterFallbackOverlay(context, camera, sceneRT);
         DrawSceneViewGizmosOnTop(context, camera);
 
@@ -715,9 +733,150 @@ public static class SceneGuardSceneViewFallbackRenderer
             context.Submit();
 
         if (log)
-            LogRepairIfChanged("original-materials-batch", 1);
+            LogRepairIfChanged("ldr-lit-overlay", 1);
 
         return 1;
+    }
+
+    /// <summary>
+    /// Original URP/TCRender passes sample lightmaps/GI. Baking sets are null on this Mac
+    /// SceneView path, so those shaders clip to white. Draw an LDR lit proxy with each
+    /// renderer's albedo color/texture instead.
+    /// </summary>
+    private static void DrawLitProxyRenderers(ScriptableRenderContext context, Camera camera, RenderTexture sceneRT)
+    {
+        Material litMaterial = GetLitFallbackMaterial(camera);
+        if (litMaterial == null || sceneRT == null)
+            return;
+
+        Plane[] frustumPlanes = GeometryUtility.CalculateFrustumPlanes(camera);
+        CommandBuffer cmd = new CommandBuffer { name = "SceneGuard SceneView Lit Proxy" };
+        cmd.SetRenderTarget(sceneRT);
+        cmd.SetViewProjectionMatrices(camera.worldToCameraMatrix, camera.projectionMatrix);
+
+        MaterialPropertyBlock properties = new MaterialPropertyBlock();
+        Texture whiteTex = Texture2D.whiteTexture;
+        bool hasPending = false;
+        foreach (Renderer renderer in Resources.FindObjectsOfTypeAll<Renderer>())
+        {
+            if (!ShouldDrawLitProxy(renderer))
+                continue;
+            if ((camera.cullingMask & (1 << renderer.gameObject.layer)) == 0)
+                continue;
+            if (!GeometryUtility.TestPlanesAABB(frustumPlanes, renderer.bounds))
+                continue;
+
+            int subMeshCount = GetSubMeshCount(renderer);
+            if (subMeshCount <= 0)
+                continue;
+
+            properties.Clear();
+            properties.SetColor(BaseColorId, ClampAlbedoColor(GetRendererBaseColor(renderer)));
+            Texture albedo = GetRendererAlbedoTexture(renderer);
+            properties.SetTexture(MainTexId, albedo != null ? albedo : whiteTex);
+
+            Mesh mesh = GetRendererMesh(renderer);
+            if (mesh != null && !(renderer is SkinnedMeshRenderer))
+            {
+                Matrix4x4 matrix = renderer.localToWorldMatrix;
+                for (int subMeshIndex = 0; subMeshIndex < subMeshCount; subMeshIndex++)
+                    cmd.DrawMesh(mesh, matrix, litMaterial, subMeshIndex, 0, properties);
+                hasPending = true;
+            }
+            else
+            {
+                if (hasPending)
+                {
+                    context.ExecuteCommandBuffer(cmd);
+                    cmd.Clear();
+                    cmd.SetRenderTarget(sceneRT);
+                    cmd.SetViewProjectionMatrices(camera.worldToCameraMatrix, camera.projectionMatrix);
+                    hasPending = false;
+                }
+
+                litMaterial.SetColor(BaseColorId, ClampAlbedoColor(GetRendererBaseColor(renderer)));
+                litMaterial.SetTexture(MainTexId, albedo != null ? albedo : whiteTex);
+                for (int subMeshIndex = 0; subMeshIndex < subMeshCount; subMeshIndex++)
+                    cmd.DrawRenderer(renderer, litMaterial, subMeshIndex);
+                context.ExecuteCommandBuffer(cmd);
+                cmd.Clear();
+                cmd.SetRenderTarget(sceneRT);
+                cmd.SetViewProjectionMatrices(camera.worldToCameraMatrix, camera.projectionMatrix);
+            }
+        }
+
+        if (hasPending)
+            context.ExecuteCommandBuffer(cmd);
+
+        cmd.Dispose();
+    }
+
+    private static Mesh GetRendererMesh(Renderer renderer)
+    {
+        if (renderer is SkinnedMeshRenderer skinned)
+            return skinned.sharedMesh;
+
+        MeshFilter filter = renderer.GetComponent<MeshFilter>();
+        return filter != null ? filter.sharedMesh : null;
+    }
+
+    private static bool ShouldDrawLitProxy(Renderer renderer)
+    {
+        if (renderer == null || !renderer.enabled || !renderer.gameObject.activeInHierarchy)
+            return false;
+        if (EditorUtility.IsPersistent(renderer))
+            return false;
+        if (!(renderer is MeshRenderer) && !(renderer is SkinnedMeshRenderer))
+            return false;
+        if (IsWaterRenderer(renderer))
+            return false;
+        return true;
+    }
+
+    private static Color ClampAlbedoColor(Color color)
+    {
+        float max = Mathf.Max(color.r, Mathf.Max(color.g, color.b));
+        if (max > 1.01f && max > 0.0001f)
+        {
+            float scale = 1f / max;
+            color.r *= scale;
+            color.g *= scale;
+            color.b *= scale;
+        }
+
+        color.r = Mathf.Clamp01(color.r);
+        color.g = Mathf.Clamp01(color.g);
+        color.b = Mathf.Clamp01(color.b);
+        color.a = 1f;
+        return color;
+    }
+
+    private static Texture GetRendererAlbedoTexture(Renderer renderer)
+    {
+        Material[] materials = renderer != null ? renderer.sharedMaterials : null;
+        if (materials == null)
+            return null;
+
+        foreach (Material material in materials)
+        {
+            if (material == null)
+                continue;
+            if (material.HasProperty("_BaseMap"))
+            {
+                Texture tex = material.GetTexture("_BaseMap");
+                if (tex != null)
+                    return tex;
+            }
+
+            if (material.HasProperty("_MainTex"))
+            {
+                Texture tex = material.GetTexture("_MainTex");
+                if (tex != null)
+                    return tex;
+            }
+        }
+
+        return null;
     }
 
     /// <summary>
@@ -860,7 +1019,7 @@ public static class SceneGuardSceneViewFallbackRenderer
 
         DrawingSettings drawingSettings = new DrawingSettings(ForwardShaderTags[0], sortingSettings)
         {
-            perObjectData = PerObjectData.Lightmaps | PerObjectData.LightProbe | PerObjectData.ReflectionProbes | PerObjectData.OcclusionProbe
+            perObjectData = PerObjectData.LightProbe | PerObjectData.ReflectionProbes
         };
         for (int i = 1; i < ForwardShaderTags.Length; i++)
             drawingSettings.SetShaderPassName(i, ForwardShaderTags[i]);
@@ -1043,9 +1202,7 @@ public static class SceneGuardSceneViewFallbackRenderer
         float radius = Mathf.Max(camera.farClipPlane * 0.95f, camera.nearClipPlane + 1f);
         Matrix4x4 matrix = Matrix4x4.TRS(camera.transform.position, Quaternion.identity, Vector3.one * radius);
 
-        if (TryDrawSceneSkybox(cmd, mesh, matrix))
-            return;
-
+        // Do not draw the scene/Nephele skybox here: it outputs HDR white on Mac SceneView.
         if (!useSceneSkyboxOnly)
         {
             ApplySampledSkyboxFallbackColors(fallbackMaterial);
@@ -1288,6 +1445,9 @@ public static class SceneGuardSceneViewFallbackRenderer
         return skyboxMaterial;
     }
 
+    private static readonly Color SceneViewSkyTop = new Color(0.70f, 0.83f, 0.95f, 1f);
+    private static readonly Color SceneViewSkyHorizon = new Color(0.93f, 0.94f, 0.96f, 1f);
+
     /// <summary>
     /// Prefer scene Lighting skybox; else URP NepheleSky feature material from renderer assets.
     /// </summary>
@@ -1379,24 +1539,21 @@ public static class SceneGuardSceneViewFallbackRenderer
         if (fallbackMaterial == null)
             return;
 
-        SampleSkyboxGradient(out Color top, out Color bottom, out string source);
-        fallbackMaterial.SetColor(TopColorId, top);
-        fallbackMaterial.SetColor(BottomColorId, bottom);
+        SampleSkyboxGradient(out Color sampledTop, out Color sampledBottom, out string source);
+        fallbackMaterial.SetColor(TopColorId, SceneViewSkyTop);
+        fallbackMaterial.SetColor(BottomColorId, SceneViewSkyHorizon);
 
         if (source == lastSkyFallbackSampleSource
-            && top == lastSkyFallbackTop
-            && bottom == lastSkyFallbackBottom)
+            && sampledTop == lastSkyFallbackTop
+            && sampledBottom == lastSkyFallbackBottom)
             return;
 
         lastSkyFallbackSampleSource = source;
-        lastSkyFallbackTop = top;
-        lastSkyFallbackBottom = bottom;
+        lastSkyFallbackTop = sampledTop;
+        lastSkyFallbackBottom = sampledBottom;
 
-        if (DiagnosticsEnabled())
-        {
-            Debug.Log(
-                $"[SceneGuardDiag] skybox fallback sampled source={source} top={top} bottom={bottom}");
-        }
+        Debug.Log(
+            $"[SceneGuardDiag] skybox using Windows-like LDR gradient top={SceneViewSkyTop} horizon={SceneViewSkyHorizon}; sampled source={source} top={sampledTop} bottom={sampledBottom}");
     }
 
     private static void SampleSkyboxGradient(out Color top, out Color bottom, out string source)
@@ -1406,7 +1563,11 @@ public static class SceneGuardSceneViewFallbackRenderer
         source = reference != null ? $"ambient+{reference.name}" : "RenderSettings.ambient";
 
         if (reference == null)
+        {
+            top = SanitizeSkyFallbackColor(top, new Color(0.45f, 0.65f, 0.95f, 1f));
+            bottom = SanitizeSkyFallbackColor(bottom, new Color(0.55f, 0.58f, 0.62f, 1f));
             return;
+        }
 
         float exposure = reference.HasProperty("_Exposure") ? reference.GetFloat("_Exposure") : 1f;
         exposure = Mathf.Max(exposure, 0.01f);
@@ -1451,8 +1612,33 @@ public static class SceneGuardSceneViewFallbackRenderer
             source += "+sun";
         }
 
-        top.a = 1f;
-        bottom.a = 1f;
+        top = SanitizeSkyFallbackColor(top, new Color(0.45f, 0.65f, 0.95f, 1f));
+        bottom = SanitizeSkyFallbackColor(bottom, new Color(0.55f, 0.58f, 0.62f, 1f));
+    }
+
+    private static Color ClampSkyFallbackColor(Color color)
+    {
+        return SanitizeSkyFallbackColor(color, new Color(0.45f, 0.65f, 0.95f, 1f));
+    }
+
+    /// <summary>
+    /// HDR sky/ambient samples collapse to near-white on Mac SceneView (no URP tonemap).
+    /// Replace blown-out or achromatic-bright colors with a usable LDR stand-in.
+    /// </summary>
+    private static Color SanitizeSkyFallbackColor(Color color, Color usableFallback)
+    {
+        float max = Mathf.Max(color.r, Mathf.Max(color.g, color.b));
+        float min = Mathf.Min(color.r, Mathf.Min(color.g, color.b));
+        bool blownOut = max > 1.01f;
+        bool nearWhite = max > 0.72f && (max - min) < 0.12f;
+        if (blownOut || nearWhite)
+            return usableFallback;
+
+        color.r = Mathf.Clamp01(color.r);
+        color.g = Mathf.Clamp01(color.g);
+        color.b = Mathf.Clamp01(color.b);
+        color.a = 1f;
+        return color;
     }
 
     private static void GetAmbientSkyGradient(out Color top, out Color bottom)
@@ -1500,6 +1686,7 @@ public static class SceneGuardSceneViewFallbackRenderer
         litFallbackMaterial.SetVector(LightDirId, lightForward);
         litFallbackMaterial.SetColor(LightColorId, lightColor);
         litFallbackMaterial.SetColor(AmbientColorId, ambient);
+        litFallbackMaterial.SetColor(BaseColorId, new Color(0.78f, 0.78f, 0.78f, 1f));
         litFallbackMaterial.SetFloat(LightingScaleId, 0.55f);
         return litFallbackMaterial;
     }
@@ -1684,6 +1871,11 @@ public static class SceneGuardSceneViewFallbackRenderer
         ReleasePlayMirrorCamera();
 
         ReleaseOpaqueCopyRT();
+        if (neutralLightmapTex != null)
+        {
+            Object.DestroyImmediate(neutralLightmapTex);
+            neutralLightmapTex = null;
+        }
         litFallbackMaterial = null;
         waterFallbackMaterial = null;
         skyboxMaterial = null;

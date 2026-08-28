@@ -1,6 +1,6 @@
 # SceneGuard
 
-Mac-only Unity Editor fix for SceneView black / missing content on Metal.
+Mac-only Unity Editor fix for SceneView black / white / missing content on Metal.
 
 ## Current stable release
 

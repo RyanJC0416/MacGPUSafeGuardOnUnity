@@ -4,7 +4,7 @@ macOS 上的 Unity Editor 稳定性工具集：**PlayMode GPU 保护**、**Scene
 
 面向 EcoEngine URP / TCRender 项目在 Mac 上常见的：Play 卡死、Scene 窗口黑屏/无贴图、GPU 压力过高等问题。
 
-**当前版本**: v1.8.7 · [Releases](https://github.com/RyanJC0416/MacGPUSafeGuardOnUnity/releases) · 详细变更见 [CHANGELOG.md](CHANGELOG.md)
+**当前版本**: v1.8.8 · [Releases](https://github.com/RyanJC0416/MacGPUSafeGuardOnUnity/releases) · 详细变更见 [CHANGELOG.md](CHANGELOG.md)
 
 ---
 
@@ -31,19 +31,13 @@ macOS 上的 Unity Editor 稳定性工具集：**PlayMode GPU 保护**、**Scene
 
 ### 3. SceneGuard（SceneView 修复）
 
-Mac Editor SceneView 在 Metal/URP 下易出现黑屏或 TCRender 不显示。SceneGuard 在 `endCameraRendering` 中 **clear → 天空 → 原材质 DrawRenderers → 水体占位 → Gizmos → Submit**。
+Mac Editor SceneView 在 Metal/URP 下易出现黑屏或 TCRender 不显示。v1.8.8 起默认在 `endCameraRendering` 中 **clear → 程序化 LDR 天空 → lit overlay DrawRenderers → 水体占位 → Gizmos → Submit**。
+
+原材质重画在 Mac 上会因缺失烘焙集而全白；只 `Submit` 则全黑。当前路径是可编辑的降级视图，不是 Windows 原材质。
 
 **Apply SceneGuard** 注入核心文件（FallbackRenderer、lit/skybox/water shader、EcoHooks 等）。
 
-**天空盒 fallback（v1.8.3+）**：不再使用硬编码渐变色，绘制前按优先级采样：
-
-1. `RenderSettings.skybox`
-2. URP `NepheleSky` 关联材质（`Skybox.mat`、`comm_sky_base` 等）
-3. `RenderSettings` 环境光（Sky / Equator）
-
-从材质读取 `_SkyTint`、`_GroundColor`、`_Exposure` 等，尽量贴近 Game 天空观感（双色渐变近似，非完整 Nephele 大气管线）。
-
-**v1.8.4+**：无 Unity `Performance` 菜单；Mac Editor 打开工程后 **自动启用** SceneView 修复（`Submit + Original Materials`）。
+**v1.8.4+**：无 Unity `Performance` 菜单；Mac Editor 打开工程后 **自动启用** SceneView 修复。
 
 ### 4. SceneGuard Tools（诊断，可选）
 
@@ -143,8 +137,7 @@ bash kill-unity.sh --no-snapshot
 |------|------|
 | PlayMode 卡死 | Apply Mac GPU Safe Guard + 开 Watchdog |
 | URP 更新后 Play 下 Game 窗口转镜头闪物件 | Apply Mac GPU Safe Guard（v1.8.5+） |
-| Scene 无贴图/黑屏 | Apply SceneGuard（v1.8.4+ 开 Editor 即自动启用） |
-| Scene / Game 天空色差 | v1.8.3+ 已从天空材质/环境光采样 |
+| Scene 无贴图/黑屏/全白 | Apply SceneGuard（v1.8.8+ 开 Editor 即自动启用 LDR overlay） |
 | 补丁写入 P4 | Settings 选 CL → Apply 对应通道 |
 | Hub 显示已打开但无 Editor | `kill-unity.sh --all` |
 
@@ -154,6 +147,7 @@ bash kill-unity.sh --no-snapshot
 
 | 版本 | 要点 |
 |------|------|
+| **v1.8.8** | SceneGuard：Mac SceneView LDR overlay，修复全白/全黑 |
 | **v1.8.7** | 主窗口 Settings 去焦点圈，拉高窗口不再被标题栏裁掉 |
 | **v1.8.6** | 自动更新：下载失败重试，不再误报 Unzip failed |
 | **v1.8.5** | 修复 URP 更新后 Play 下 Game 窗口转镜头闪物件（VG GPU 投影） |

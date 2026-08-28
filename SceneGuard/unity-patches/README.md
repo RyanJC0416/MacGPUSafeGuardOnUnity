@@ -1,6 +1,6 @@
 # SceneGuard Unity Patches (Mac Editor)
 
-Verified **2026-06-08** on Unity 2022.3 / Metal / EcoEngine URP.
+Verified **2026-08-28** on Unity 2022.3 / Metal / EcoEngine URP.
 
 Copy everything under `Assets/Editor/` into the Unity project at the same relative path:
 
@@ -15,14 +15,14 @@ Or use **GpuSafeGuard.app → Settings → Apply SceneGuard tools** (separate fr
 | Item | Value |
 |------|--------|
 | Menu | `Performance/SceneGuard/SceneView TCRender Fallback Enabled` **ON** |
-| Repair mode | **Submit + Original Materials** |
+| Repair mode | **LDR lit overlay**（原材质在 Mac SceneView 会全白） |
 | Play mirror | **OFF** (`PlayMirrorPathEnabled = false` in source) |
 | EcoHooks | **OFF** (EditorPrefs migration) |
 
 **Render flow** (`endCameraRendering`, SceneView camera only):
 
-1. Clear RT → skybox (scene or fallback)
-2. `DrawRenderers` opaque + transparent (original materials)
+1. Clear RT → procedural LDR sky (Windows-like pale blue; HDR Nephele samples clip to white)
+2. `DrawRenderers` opaque + transparent with SceneGuard lit overlay (not original materials)
 3. Water placeholder (`TCRender/Water/*` → opaque teal fallback shader)
 4. `ScriptableRenderContext.DrawGizmos` + `Handles.DrawGizmos` (duringSceneGui)
 5. `context.Submit()` (required on Mac Metal)
@@ -57,7 +57,8 @@ Deprecated experiments (Harmony hijack, NativePath, DepthToR, SimpleTonemap) liv
 
 ## Known limitations
 
-- SceneView ≠ GameView: no volumetric clouds, exposure, full water SSR/refraction
+- SceneView ≠ GameView: no volumetric clouds, exposure, original TCRender lighting, or skybox textures
+- Geometry uses a **gray LDR lit overlay** so Scene stays editable (original materials clip to white on Mac)
 - Water is a **solid placeholder** so lakes/rivers remain visible in Scene
 - Play-mode game-camera mirror remains in source but disabled (LOD / multi-camera side effects)
 
@@ -68,4 +69,4 @@ echo trigger > <unity>/Library/BgCompile/trigger.txt
 # expect Library/BgCompile/last_result.json → state=ok, errors=0
 ```
 
-Last BgCompile: `build_seq=1578`, `errors=0`.
+Last BgCompile: `build_seq=133`, `errors=0`. User confirmed SceneView greybox + pale sky is usable.

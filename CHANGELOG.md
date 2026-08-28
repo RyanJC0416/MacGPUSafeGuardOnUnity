@@ -1,5 +1,20 @@
 # MacGPUSafeGuard Changelog
 
+## v1.8.8 - 2026-08-28 - SceneGuard LDR overlay for Mac SceneView
+
+### 变更
+
+- **Scene 窗口不再全白/全黑**：Mac Metal 上原材质重画会爆白（烘焙集为空），只 `Submit` 则全黑
+- 稳定路径改为 **LDR lit overlay**（灰面 + 方向光）+ 程序化浅蓝天空，Editor 启动自动启用
+- 不再用 SceneGuard 假天空去采 HDR Nephele/Atmosphere（会洗成白）
+- 用户已确认 Scene 可编辑；与 Windows 原材质/阴影仍有差距，这是降级编辑视图
+
+### 使用
+
+1. 下载 `GpuSafeGuard.app.zip` 解压到 `/Applications/`
+2. Settings → **Apply SceneGuard**（覆盖旧补丁）
+3. 重开 Unity，看 Scene 窗口应能看到灰盒几何和浅蓝天空
+
 ## v1.8.7 - 2026-08-28 - Main window Settings layout
 
 ### 变更

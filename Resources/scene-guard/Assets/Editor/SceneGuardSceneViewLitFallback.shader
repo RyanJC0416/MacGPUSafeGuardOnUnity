@@ -53,7 +53,6 @@ Shader "Hidden/SceneGuard/SceneViewLitFallback"
             {
                 float3 normal = normalize(i.normalWS);
                 float3 lightDir = normalize(_LightDir.xyz);
-                // Half-Lambert keeps contrast without blowing out HDR SceneView RT.
                 float ndl = dot(normal, -lightDir) * 0.5 + 0.5;
                 fixed3 ambient = _AmbientColor.rgb * 0.35;
                 fixed3 diffuse = _LightColor.rgb * ndl * 0.65;
