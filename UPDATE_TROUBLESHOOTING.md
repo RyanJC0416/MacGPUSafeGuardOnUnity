@@ -1,5 +1,23 @@
 # Update Troubleshooting
 
+## Problem: Check failed: Unzip failed (cannot find or open GpuSafeGuard_x.y.z.zip)
+
+### Root Cause
+`Updater.download` used `curl -sL` and only looked at stderr. When GitHub timed out, curl exited non-zero **without writing the zip** and `-s` hid the error. The updater then ran `unzip` on a missing file.
+
+Seen with v1.8.4 → v1.8.5: `GpuSafeGuard_1.8.5/` existed (empty extract dir) but `GpuSafeGuard_1.8.5.zip` did not. GitHub asset download count stayed 0.
+
+### What We Fixed (v1.8.6+)
+- Check curl / unzip **exit codes**
+- Retry download up to 3 times (`curl -fL --retry`)
+- Refuse to unzip unless the zip exists and is large enough
+- Confirm `GpuSafeGuard.app` is inside the archive
+
+### Workaround on 1.8.4 / 1.8.5
+Download `GpuSafeGuard.app.zip` from GitHub Releases and replace `/Applications/GpuSafeGuard.app`. Then Check for Updates again.
+
+---
+
 ## Problem: Update Failed with "Read-only file system"
 
 ### Root Cause

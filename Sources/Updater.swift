@@ -47,25 +47,28 @@ enum Updater {
 
     static func check() async -> UpdateResult {
         let apiURL = "https://api.github.com/repos/\(repo)/releases/latest"
-        var curlArgs = ["curl", "-sL", "-H", "Accept: application/vnd.github+json"]
+        var curlArgs = ["curl", "-sfL", "-H", "Accept: application/vnd.github+json"]
         if let token = githubToken(), !token.isEmpty {
             curlArgs += ["-H", "Authorization: token \(token)"]
         }
         curlArgs.append(apiURL)
-        let (output, err) = shell(curlArgs)
-        guard err == nil || err!.isEmpty else {
-            return UpdateResult(hasUpdate: false, currentVersion: currentVersion(), latestVersion: "", downloadURL: nil, error: "API error: \(err!)")
+        let api = shell(curlArgs)
+        guard !api.failed else {
+            return UpdateResult(hasUpdate: false, currentVersion: currentVersion(), latestVersion: "", downloadURL: nil, error: "API error: \(api.errorText)")
         }
-        if let msg = extractMessage(from: output), msg.lowercased().contains("rate limit") {
+        if let msg = extractMessage(from: api.out), msg.lowercased().contains("rate limit") {
             return UpdateResult(hasUpdate: false, currentVersion: currentVersion(), latestVersion: "", downloadURL: nil, error: "GitHub API rate limit exceeded. Retry later.")
         }
-        guard let tag = extractTag(from: output) else {
+        guard let tag = extractTag(from: api.out) else {
             return UpdateResult(hasUpdate: false, currentVersion: currentVersion(), latestVersion: "", downloadURL: nil, error: "Cannot parse release info")
         }
         let latest = tag.replacingOccurrences(of: "v", with: "")
         let current = currentVersion()
         let hasUpdate = isVersionGreater(latest, current)
-        let url = extractDownloadURL(from: output, assetName: assetName)
+        let url = extractDownloadURL(from: api.out, assetName: assetName)
+        if hasUpdate && (url == nil || url!.isEmpty) {
+            return UpdateResult(hasUpdate: true, currentVersion: current, latestVersion: latest, downloadURL: nil, error: "Update \(latest) found but \(assetName) is missing from the release")
+        }
         return UpdateResult(
             hasUpdate: hasUpdate,
             currentVersion: current,
@@ -82,18 +85,54 @@ enum Updater {
 
         let zipPath = updatesDir.appendingPathComponent("GpuSafeGuard_\(version).zip").path
         let extractDir = updatesDir.appendingPathComponent("GpuSafeGuard_\(version)").path
-
-        let (_, err) = shell(["curl", "-sL", "-o", zipPath, url])
-        guard err == nil || err!.isEmpty else { return "Download failed: \(err!)" }
-
         let fm = FileManager.default
-        try? fm.removeItem(atPath: extractDir)
-        try? fm.createDirectory(atPath: extractDir, withIntermediateDirectories: true)
+        var lastError = "Download failed"
 
-        let (_, unzipErr) = shell(["unzip", "-o", "-q", zipPath, "-d", extractDir])
-        guard unzipErr == nil || unzipErr!.isEmpty else { return "Unzip failed: \(unzipErr!)" }
+        for attempt in 1...3 {
+            try? fm.removeItem(atPath: zipPath)
+            try? fm.removeItem(atPath: extractDir)
 
-        return nil
+            var curlArgs = [
+                "curl", "-fL", "--retry", "3", "--retry-delay", "2",
+                "--connect-timeout", "20", "--max-time", "180",
+                "-A", "GpuSafeGuard-Updater/\(currentVersion())",
+                "-o", zipPath, url
+            ]
+            if let token = githubToken(), !token.isEmpty {
+                curlArgs.insert(contentsOf: ["-H", "Authorization: token \(token)"], at: 1)
+            }
+
+            let dl = shell(curlArgs)
+            if dl.failed {
+                lastError = "Download failed (attempt \(attempt)/3): \(dl.errorText)"
+                continue
+            }
+
+            guard fm.fileExists(atPath: zipPath) else {
+                lastError = "Download failed (attempt \(attempt)/3): zip was not written"
+                continue
+            }
+            let size = (try? fm.attributesOfItem(atPath: zipPath)[.size] as? NSNumber)?.intValue ?? 0
+            if size < 1000 {
+                lastError = "Download failed (attempt \(attempt)/3): zip too small (\(size) bytes)"
+                continue
+            }
+
+            try? fm.createDirectory(atPath: extractDir, withIntermediateDirectories: true)
+            let unzip = shell(["unzip", "-o", "-q", zipPath, "-d", extractDir])
+            if unzip.failed {
+                lastError = "Unzip failed (attempt \(attempt)/3): \(unzip.errorText)"
+                continue
+            }
+
+            let newApp = (extractDir as NSString).appendingPathComponent("GpuSafeGuard.app")
+            if fm.fileExists(atPath: newApp) {
+                return nil
+            }
+            lastError = "Unzip failed (attempt \(attempt)/3): GpuSafeGuard.app missing in archive"
+        }
+
+        return lastError
     }
 
     static func install(version: String) -> String? {
@@ -219,7 +258,23 @@ enum Updater {
         return false
     }
 
-    private static func shell(_ args: [String]) -> (String, String?) {
+    private struct ShellResult {
+        let out: String
+        let err: String
+        let status: Int32
+
+        var failed: Bool { status != 0 }
+
+        var errorText: String {
+            let e = err.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !e.isEmpty { return e }
+            let o = out.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !o.isEmpty { return o }
+            return "exit \(status)"
+        }
+    }
+
+    private static func shell(_ args: [String]) -> ShellResult {
         let task = Process()
         task.executableURL = URL(fileURLWithPath: "/usr/bin/env")
         task.arguments = args
@@ -231,10 +286,10 @@ enum Updater {
             try task.run()
             task.waitUntilExit()
         } catch {
-            return ("", error.localizedDescription)
+            return ShellResult(out: "", err: error.localizedDescription, status: -1)
         }
         let out = String(data: outPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
-        let err = String(data: errPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8)
-        return (out, err?.isEmpty == true ? nil : err)
+        let err = String(data: errPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+        return ShellResult(out: out, err: err, status: task.terminationStatus)
     }
 }

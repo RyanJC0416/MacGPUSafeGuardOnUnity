@@ -374,8 +374,10 @@ final class AppState: ObservableObject {
             await MainActor.run {
                 if let err = result.error {
                     self.updateStatus = .error(err)
-                } else if result.hasUpdate, let url = result.downloadURL {
+                } else if result.hasUpdate, let url = result.downloadURL, !url.isEmpty {
                     self.updateStatus = .available(version: result.latestVersion, url: url)
+                } else if result.hasUpdate {
+                    self.updateStatus = .error("Update \(result.latestVersion) found but download URL is missing")
                 } else {
                     self.updateStatus = .upToDate
                 }

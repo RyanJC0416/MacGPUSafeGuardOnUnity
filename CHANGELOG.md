@@ -1,5 +1,16 @@
 # MacGPUSafeGuard Changelog
 
+## v1.8.6 - 2026-08-28 - Auto-update download retries
+
+### 变更
+
+- **自动更新**：下载失败时不再误报 `Unzip failed`（检查 curl 退出码、校验 zip、最多重试 3 次）
+- v1.8.4 在 `github.com` 超时时 zip 根本没写到磁盘，却继续解压，所以提示找不到 `GpuSafeGuard_1.8.5.zip`
+
+### 使用
+
+1.8.4 / 1.8.5 仍是旧更新器。若应用内更新再失败，从 [Releases](https://github.com/RyanJC0416/MacGPUSafeGuardOnUnity/releases/tag/v1.8.6) 手动下载 zip 解压到 `/Applications/`。装上 1.8.6 之后，以后的应用内更新会重试并给出真实下载错误。
+
 ## v1.8.5 - 2026-08-28 - Play Game view after URP update
 
 ### 变更
