@@ -84,5 +84,59 @@ namespace Performance.MacGPU
 
         [Tooltip("触发自动降级后的冷却时间（秒），避免频繁切换。")]
         public float autoReduceCooldownSeconds = 30f;
+
+        [Header("Play 模式重型 RendererFeature 屏蔽 (实验性)")]
+        [Tooltip("是否在 Play 运行时按下面名单关闭匹配的 RendererFeature。" +
+                 "本次测试版本默认开启；验证后若需保留为 opt-in，可改回 false。")]
+        public bool disableHeavyRendererFeaturesInPlay = true;
+
+        [Tooltip("要屏蔽的 RendererFeature 名称子串（不区分大小写，部分匹配）。" +
+                 "Unity 迭代后新增/重命名 feature 时在此维护。")]
+        public string[] heavyRendererFeaturePatterns = new string[]
+        {
+            "[TA]Volumetric Lighting",
+            "[TA]ScreenSpaceReflection",
+            "[TA]ScreenSpaceGlobalIllumination",
+            "GTAO",
+            "[TA]Cloud Shadow",
+            "[Engine]Ocean",
+            "EcoEngine.Rendering.CodeBridge.FurRendererFeature",
+            "HeightMapFogFeature",
+            "[TA]SeparableSSS",
+            "EcoEngine.Rendering.CodeBridge.HighQualityDepthOfFieldRendererFeature",
+            "EcoEngine.Rendering.CodeBridge.ContactShadowsRenderFeature",
+            "[TA]RealTimeSkyGI",
+            "EcoEngine.Rendering.CodeBridge.NepheleSkyRendererFeature",
+            "[TA]DebugScreenHSV",
+            "[Engine]Screenshot Effect",
+            "EcoEngine.Rendering.CodeBridge.CloudShadowRendererFeature",
+            "EcoEngine.Rendering.CodeBridge.ParticleCloudRendererFeature",
+            "GlobalVolumeCloud",
+            "VolumetricClouds",
+            "HorizonBasedAmbientOcclusion",
+            "SubsurfaceScattering",
+            "角色高精度阴影",
+            "FastFourierTransform",
+        };
+
+        [Header("BigWorld 相机视锥体分块剔除 (实验性)")]
+        [Tooltip("是否在 Play 运行时关闭 EcoEngine.BigWorld.Scene.m_bCheckBlockByCamera。" +
+                 "关闭后大世界分块加载只以玩家位置为中心，不再随相机转动而加载/卸载分块，" +
+                 "用于验证镜头转动时物件闪烁是否由视锥体分块剔除引起。")]
+        public bool disableBigWorldCameraBlockCulling = true;
+
+        [Tooltip("强制修改 EntityManager.m_CameraExtendedRange 的额外范围。" +
+                 "0 表示不修改；正值会扩大相机视锥体剔除的包围范围。")]
+        public float bigWorldCameraExtendedRange = 0f;
+
+        [Header("Play 模式 Game 窗口 VG / Scene 相机 (实验性)")]
+        [Tooltip("Play 时关掉 SceneView 相机。Virtual Geometry 的可见性缓冲是全局的，" +
+                 "Scene 相机和 Game 相机抢同一份 GPU cull 结果会导致 Game 窗口随镜头转动闪烁。" +
+                 "Scene 窗口本轮先不管。")]
+        public bool disableSceneViewCamerasInPlay = true;
+
+        [Tooltip("把上一轮误关的 Virtual Geometry / Impostor 等重新打开。" +
+                 "sm_stone_37c_m 这类物件走 VG，没有普通 MeshRenderer。")]
+        public bool restoreVirtualGeometryInPlay = true;
     }
 }

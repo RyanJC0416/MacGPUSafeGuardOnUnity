@@ -86,11 +86,15 @@
 		</data>
 		<key>Resources/templates/MacGPUConfig.cs</key>
 		<data>
-		xpu7FncYiDvTHn7EYC4DGDucoGk=
+		csE6v69azcj3TUygpG3M8Vv3q5A=
 		</data>
 		<key>Resources/templates/MacGPUSafeGuard.cs</key>
 		<data>
-		RYEzfDt+UHOkDW949FeQ9hcNFX0=
+		+nVeedEvPlF3Pd+f1gZxm19Zmkk=
+		</data>
+		<key>Resources/templates/MacVgGpuVpFixFeature.cs</key>
+		<data>
+		goF4uDSS7MDKOqWuGMeBnRFuM4s=
 		</data>
 		<key>Resources/watchdog.sh.tmpl</key>
 		<data>
@@ -243,14 +247,21 @@
 		<dict>
 			<key>hash2</key>
 			<data>
-			6ht5iUJ1e9J5hO9Nf4jyLQ51/PWpnEzXMw/AagcjfE4=
+			i/xttbv9ot7LuC4MzR5agMue4xTE+T9fUjlJB8Ix9f4=
 			</data>
 		</dict>
 		<key>Resources/templates/MacGPUSafeGuard.cs</key>
 		<dict>
 			<key>hash2</key>
 			<data>
-			sJENA1KxQX4T4Pj/pM8uPu4h6CUvtk5ocE3TQxCwcDs=
+			bz265SuC1w4s1U2Dcl/etIS+vIkrxktmSQyXM0/Iax8=
+			</data>
+		</dict>
+		<key>Resources/templates/MacVgGpuVpFixFeature.cs</key>
+		<dict>
+			<key>hash2</key>
+			<data>
+			+YRmu9tCU935Bm6xCR0curhEl/bU0JGbg4eBOkXv5Bg=
 			</data>
 		</dict>
 		<key>Resources/watchdog.sh.tmpl</key>

@@ -1,5 +1,19 @@
 # MacGPUSafeGuard Changelog
 
+## v1.8.5 - 2026-08-28 - Play Game view after URP update
+
+### 变更
+
+- **修复项目 URP 更新后，Mac Play 下 Game 窗口随镜头转动闪物件**（Virtual Geometry 对 Game 相机用了 CPU 投影，Metal compute 视锥/HiZ 裁错）
+- Play 时对 Game 相机强制走 `GetGPUProjectionMatrix` 并重裁；关掉 BigWorld 相机分块流式加载引起的远景弹出
+- 新增注入 `MacVgGpuVpFixFeature.cs`（与 `MacGPUSafeGuard.cs` / `MacGPUConfig.cs` 一同 Apply）
+
+### 使用
+
+1. 下载 `GpuSafeGuard.app.zip` 解压到 `/Applications/`
+2. Settings → **Apply Mac GPU Safe Guard**（覆盖旧补丁）
+3. 重开 Unity 再 Play，转镜头确认 Game 窗口不再闪
+
 ## v1.8.4 - 2026-06-08 - Zero Performance menu, auto defaults
 
 ### 变更

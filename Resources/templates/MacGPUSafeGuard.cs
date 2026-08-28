@@ -56,6 +56,19 @@ namespace Performance.MacGPU
         private object _urpAssetObj;
         private float _lastAutoReduceTime = -999f;
         private float _lastVSyncForceLogTime = -999f;
+        private float _lastCameraForceLogTime = -999f;
+        private readonly HashSet<int> _aaAppliedCameraIds = new HashSet<int>();
+        private bool _rendererFeaturesDisabledInPlay;
+        private bool _cullingSystemsDisabledInPlay;
+        private bool _virtualGeometryRestoredInPlay;
+        private bool _vgGpuVpFixInjected;
+        private uint _frozenInstancingBoundsCode;
+        private bool _instancingBoundsCodeFrozen;
+        private bool _bigWorldCameraCullingDisabled;
+        private object _bigWorldSceneObj;
+        private FieldInfo _bigWorldCheckBlockField;
+        private FieldInfo _bigWorldEntityManagerField;
+        private FieldInfo _bigWorldCameraExtendedRangeField;
         private List<float> _frameTimeHistory = new List<float>(60);
 
         private const string C_PLAY_GUARD_PENDING_KEY = "MacGPUSafeGuard.PlayGuardPending";
@@ -98,6 +111,11 @@ namespace Performance.MacGPU
                 return;
 
             MaintainSafeVSync();
+            MaintainGameCameraSafeguards();
+            PatchBigWorldCameraCulling(config);
+            DisableSceneViewCamerasInPlay(config);
+            RestoreVirtualGeometryInPlay(config);
+            InjectVgGpuVpFix();
 
             if (!config.enableFrameTimeMonitor)
                 return;
@@ -133,6 +151,64 @@ namespace Performance.MacGPU
             {
                 _lastVSyncForceLogTime = Time.unscaledTime;
                 Log("VSync was overridden by another system, forcing it back to 1");
+            }
+        }
+
+        static bool IsGameCamera(Camera cam)
+        {
+            if (cam == null)
+                return false;
+            CameraType type = cam.cameraType;
+            return type == CameraType.Game || type == CameraType.VR;
+        }
+
+        void MaintainGameCameraSafeguards()
+        {
+            if (config == null)
+                return;
+
+            Camera[] cameras = Camera.allCameras;
+            int forced = 0;
+            for (int i = 0; i < cameras.Length; i++)
+            {
+                Camera cam = cameras[i];
+                if (!IsGameCamera(cam))
+                    continue;
+
+                if (cam.allowHDR != config.allowHDR)
+                {
+                    cam.allowHDR = config.allowHDR;
+                    forced++;
+                }
+
+                if (cam.allowMSAA != config.allowMSAA)
+                {
+                    cam.allowMSAA = config.allowMSAA;
+                    forced++;
+                }
+
+                int id = cam.GetInstanceID();
+                if (_aaAppliedCameraIds.Contains(id))
+                    continue;
+
+                try
+                {
+                    ApplyAntiAliasing(config, cam);
+                }
+                catch (Exception ex)
+                {
+                    Log($"AntiAliasing skipped on {cam.name}: {ex.GetType().Name}: {ex.Message}");
+                }
+                finally
+                {
+                    _aaAppliedCameraIds.Add(id);
+                }
+            }
+
+            if (forced > 0 && Time.unscaledTime - _lastCameraForceLogTime > 1f)
+            {
+                _lastCameraForceLogTime = Time.unscaledTime;
+                Log($"Forced HDR/MSAA on Game cameras (allowHDR={config.allowHDR}, allowMSAA={config.allowMSAA}, touched={forced})");
             }
         }
 
@@ -174,16 +250,22 @@ namespace Performance.MacGPU
                     ApplySRPBatcher(cfg);
                 }
 
-                // Camera settings — access Camera.main + UniversalAdditionalCameraData via reflection
-                if (Camera.main != null)
+                // Game cameras often spawn after Awake/Start (hot-update / BigWorld).
+                // Apply to current Game cameras now; Update() retries as new cameras appear.
+                ApplyCameraSettings(cfg);
+
+                // Play-mode heavy RendererFeature blacklist (forced in this test build).
+                // Temporarily ignoring config.disableHeavyRendererFeaturesInPlay so old config assets also run.
+                if (_urpAssetObj != null && !_rendererFeaturesDisabledInPlay)
                 {
-                    ApplyCameraSettings(cfg);
-                }
-                else
-                {
-                    Log("WARNING: Camera.main is null, camera settings will be applied in Start()");
+                    DisableHeavyRendererFeaturesInPlay(cfg);
                 }
 
+                // Culling / occlusion test: disable them to see if rotation popping stops.
+                if (_urpAssetObj != null && !_cullingSystemsDisabledInPlay)
+                {
+                    DisableCullingAndOcclusionInPlay();
+                }
 
                 _configApplied = true;
                 Log("All safe config applied successfully.");
@@ -198,17 +280,31 @@ namespace Performance.MacGPU
 
         void Start()
         {
-            // Retry camera settings if Camera.main was null in Awake
             if (!_isMacPlatform || config == null || _configApplied == false)
                 return;
 
-            if (Camera.main == null)
-            {
-                Log("WARNING: Camera.main still null in Start(), camera settings skipped");
-                return;
-            }
-
             ApplyCameraSettings(config);
+
+            if (_urpAssetObj != null && !_rendererFeaturesDisabledInPlay)
+                DisableHeavyRendererFeaturesInPlay(config);
+
+            if (_urpAssetObj != null && !_cullingSystemsDisabledInPlay)
+                DisableCullingAndOcclusionInPlay();
+
+            PatchBigWorldCameraCulling(config);
+            DisableSceneViewCamerasInPlay(config);
+            RestoreVirtualGeometryInPlay(config);
+            InjectVgGpuVpFix();
+        }
+
+        void LateUpdate()
+        {
+            if (!_isMacPlatform || config == null)
+                return;
+            if (!Application.isPlaying)
+                return;
+
+            FreezeGpuInstancingFrustumOnRotate();
         }
 
         void ApplyVSync(MacGPUConfig cfg)
@@ -304,20 +400,52 @@ namespace Performance.MacGPU
 
         void ApplyCameraSettings(MacGPUConfig cfg)
         {
-            Log("--- Camera Settings ---");
-            ApplyAntiAliasing(cfg);
-            ApplyMSAA(cfg);
-            ApplyHDR(cfg);
+            Camera[] cameras = Camera.allCameras;
+            int gameCount = 0;
+            for (int i = 0; i < cameras.Length; i++)
+            {
+                if (IsGameCamera(cameras[i]))
+                    gameCount++;
+            }
+
+            if (gameCount == 0)
+            {
+                Log("--- Camera Settings --- skipped (no Game cameras yet; Update will retry)");
+                return;
+            }
+
+            Log($"--- Camera Settings --- applying to {gameCount} Game camera(s)");
+            for (int i = 0; i < cameras.Length; i++)
+            {
+                Camera cam = cameras[i];
+                if (!IsGameCamera(cam))
+                    continue;
+
+                try
+                {
+                    ApplyAntiAliasing(cfg, cam);
+                    ApplyMSAA(cfg, cam);
+                    ApplyHDR(cfg, cam);
+                }
+                catch (Exception ex)
+                {
+                    Log($"Camera settings skipped on {cam.name}: {ex.GetType().Name}: {ex.Message}");
+                }
+                finally
+                {
+                    _aaAppliedCameraIds.Add(cam.GetInstanceID());
+                }
+            }
         }
 
-        void ApplyAntiAliasing(MacGPUConfig cfg)
+        void ApplyAntiAliasing(MacGPUConfig cfg, Camera cam)
         {
-            if (Camera.main == null) return;
+            if (cam == null) return;
 
-            object cameraData = GetUniversalAdditionalCameraData(Camera.main);
+            object cameraData = GetUniversalAdditionalCameraData(cam);
             if (cameraData == null)
             {
-                Log("WARNING: Could not find UniversalAdditionalCameraData component on Camera.main");
+                Log($"WARNING: Could not find UniversalAdditionalCameraData on {cam.name}");
                 return;
             }
 
@@ -332,7 +460,7 @@ namespace Performance.MacGPU
                 if (aaProp != null) break;
             }
 
-            if (aaProp != null && aaProp.CanWrite)
+            if (aaProp != null && aaProp.CanWrite && !IsByRefProperty(aaProp))
             {
                 object oldVal = aaProp.GetValue(cameraData);
                 object newVal;
@@ -346,7 +474,7 @@ namespace Performance.MacGPU
                     newVal = cfg.antiAliasingMode;
                 }
                 aaProp.SetValue(cameraData, newVal);
-                Log($"AntiAliasing: {oldVal} -> {newVal} ({cfg.antiAliasingMode})");
+                Log($"AntiAliasing [{cam.name}]: {oldVal} -> {newVal} ({cfg.antiAliasingMode})");
             }
             else
             {
@@ -362,7 +490,7 @@ namespace Performance.MacGPU
                 if (aaqProp != null) break;
             }
 
-            if (aaqProp != null && aaqProp.CanWrite)
+            if (aaqProp != null && aaqProp.CanWrite && !IsByRefProperty(aaqProp))
             {
                 object oldVal = aaqProp.GetValue(cameraData);
                 object newVal;
@@ -374,85 +502,53 @@ namespace Performance.MacGPU
                 Log($"AntiAliasingQuality: {oldVal} -> {newVal}");
             }
 
-            // taaSettings.quality (TemporalAAQuality: 0=Low, 1=Medium, 2=High)
-            string[] taaNames = { "taaSettings", "m_TaaSettings" };
-            foreach (var taaName in taaNames)
+            // taaSettings is often a ref-returning property on URP camera data.
+            // PropertyInfo.GetValue throws NotSupportedException (ByRef) on Mono.
+            foreach (var taaName in new[] { "m_TaaSettings", "taaSettings" })
             {
-                var taaField = FindFieldRecursive(dataType, taaName);
-                var taaProp = FindPropertyRecursive(dataType, taaName);
-                if (taaField != null || taaProp != null)
-                {
-                    object taaSettings = taaField != null
-                        ? taaField.GetValue(cameraData)
-                        : taaProp.GetValue(cameraData);
-                    if (taaSettings != null)
-                    {
-                        Type taaType = taaSettings.GetType();
-                        string[] qualityNames = { "quality", "m_Quality" };
-                        foreach (var qn in qualityNames)
-                        {
-                            var qField = FindFieldRecursive(taaType, qn);
-                            var qProp = FindPropertyRecursive(taaType, qn);
-                            if (qField != null)
-                            {
-                                object oldQ = qField.GetValue(taaSettings);
-                                object newQ;
-                                if (qField.FieldType.IsEnum)
-                                    newQ = Enum.ToObject(qField.FieldType, cfg.taaQuality);
-                                else
-                                    newQ = cfg.taaQuality;
-                                qField.SetValue(taaSettings, newQ);
-                                Log($"TAA Quality: {oldQ} -> {newQ}");
-                                break;
-                            }
-                            if (qProp != null)
-                            {
-                                object oldQ = qProp.GetValue(taaSettings);
-                                object newQ;
-                                if (qProp.PropertyType.IsEnum)
-                                    newQ = Enum.ToObject(qProp.PropertyType, cfg.taaQuality);
-                                else
-                                    newQ = cfg.taaQuality;
-                                qProp.SetValue(taaSettings, newQ);
-                                Log($"TAA Quality: {oldQ} -> {newQ}");
-                                break;
-                            }
-                        }
-                    }
+                FieldInfo taaField = FindFieldRecursive(dataType, taaName);
+                if (taaField == null)
+                    continue;
+
+                object taaSettings = taaField.GetValue(cameraData);
+                if (taaSettings == null)
+                    continue;
+
+                Type taaType = taaSettings.GetType();
+                FieldInfo qField = FindFieldRecursive(taaType, "quality")
+                                   ?? FindFieldRecursive(taaType, "m_Quality");
+                if (qField == null)
                     break;
-                }
+
+                object oldQ = qField.GetValue(taaSettings);
+                object newQ = qField.FieldType.IsEnum
+                    ? Enum.ToObject(qField.FieldType, cfg.taaQuality)
+                    : (object)cfg.taaQuality;
+                qField.SetValue(taaSettings, newQ);
+                Log($"TAA Quality [{cam.name}]: {oldQ} -> {newQ}");
+                break;
             }
         }
 
-        void ApplyMSAA(MacGPUConfig cfg)
+        void ApplyMSAA(MacGPUConfig cfg, Camera cam)
         {
-            var cam = Camera.main;
             if (cam == null) return;
 
             if (cam.allowMSAA != cfg.allowMSAA)
             {
                 cam.allowMSAA = cfg.allowMSAA;
-                Log($"allowMSAA: {!cfg.allowMSAA} -> {cfg.allowMSAA}");
-            }
-            else
-            {
-                Log($"allowMSAA: already {cfg.allowMSAA}, no change");
+                Log($"allowMSAA [{cam.name}]: {!cfg.allowMSAA} -> {cfg.allowMSAA}");
             }
         }
 
-        void ApplyHDR(MacGPUConfig cfg)
+        void ApplyHDR(MacGPUConfig cfg, Camera cam)
         {
-            var cam = Camera.main;
             if (cam == null) return;
 
             if (cam.allowHDR != cfg.allowHDR)
             {
                 cam.allowHDR = cfg.allowHDR;
-                Log($"allowHDR: {!cfg.allowHDR} -> {cfg.allowHDR}");
-            }
-            else
-            {
-                Log($"allowHDR: already {cfg.allowHDR}, no change");
+                Log($"allowHDR [{cam.name}]: {!cfg.allowHDR} -> {cfg.allowHDR}");
             }
         }
 
@@ -498,6 +594,834 @@ namespace Performance.MacGPU
         }
 
         #endregion
+
+        #region RendererFeature Blacklist (Play Mode)
+
+        /// <summary>
+        /// Play-mode opt-in: disable heavy RendererFeatures by name substring.
+        /// Only runs on Mac when config.disableHeavyRendererFeaturesInPlay is true.
+        /// Changes are in-memory only; restart to revert.
+        /// </summary>
+        void DisableHeavyRendererFeaturesInPlay(MacGPUConfig cfg)
+        {
+            if (_rendererFeaturesDisabledInPlay)
+                return;
+
+            if (!cfg.disableHeavyRendererFeaturesInPlay)
+                Log("[Play Blacklist] Config flag is disabled; forcing test run.");
+
+            var patterns = cfg.heavyRendererFeaturePatterns;
+            if (patterns == null || patterns.Length == 0)
+            {
+                Log("[Play Blacklist] No patterns configured; using built-in fallback list.");
+                patterns = GetDefaultHeavyRendererFeaturePatterns();
+            }
+
+            try
+            {
+                int disabledCount = 0;
+                int inspectedCount = 0;
+
+                object[] rendererDataList = GetRendererDataList();
+                if (rendererDataList == null || rendererDataList.Length == 0)
+                {
+                    Log("WARNING: Could not resolve renderer data list for Play-mode feature blacklist.");
+                    return;
+                }
+
+                foreach (var rendererData in rendererDataList)
+                {
+                    if (rendererData == null)
+                        continue;
+
+                    object[] features = GetRendererFeatures(rendererData);
+                    if (features == null)
+                        continue;
+
+                    foreach (var feature in features)
+                    {
+                        if (feature == null)
+                            continue;
+
+                        string featureName = GetFeatureName(feature);
+                        inspectedCount++;
+                        if (string.IsNullOrEmpty(featureName))
+                            continue;
+
+                        foreach (string pattern in patterns)
+                        {
+                            if (string.IsNullOrEmpty(pattern))
+                                continue;
+
+                            if (featureName.IndexOf(pattern, StringComparison.OrdinalIgnoreCase) >= 0)
+                            {
+                                if (SetFeatureActive(feature, false))
+                                {
+                                    Log($"[Play Blacklist] DISABLED: {featureName} (matched '{pattern}')");
+                                    disabledCount++;
+                                }
+                                break;
+                            }
+                        }
+                    }
+                }
+
+                _rendererFeaturesDisabledInPlay = true;
+                Log($"[Play Blacklist] Inspected {inspectedCount} feature(s), disabled {disabledCount}. Restart to revert.");
+            }
+            catch (Exception ex)
+            {
+                Log($"ERROR disabling heavy RendererFeatures in Play: {ex.Message}\n{ex.StackTrace}");
+            }
+        }
+
+        static string[] GetDefaultHeavyRendererFeaturePatterns()
+        {
+            return new string[]
+            {
+                "[TA]Volumetric Lighting",
+                "[TA]ScreenSpaceReflection",
+                "[TA]ScreenSpaceGlobalIllumination",
+                "GTAO",
+                "[TA]Cloud Shadow",
+                "[Engine]Ocean",
+                "EcoEngine.Rendering.CodeBridge.FurRendererFeature",
+                "HeightMapFogFeature",
+                "[TA]SeparableSSS",
+                "EcoEngine.Rendering.CodeBridge.HighQualityDepthOfFieldRendererFeature",
+                "EcoEngine.Rendering.CodeBridge.ContactShadowsRenderFeature",
+                "[TA]RealTimeSkyGI",
+                "EcoEngine.Rendering.CodeBridge.NepheleSkyRendererFeature",
+                "[TA]DebugScreenHSV",
+                "[Engine]Screenshot Effect",
+                "EcoEngine.Rendering.CodeBridge.CloudShadowRendererFeature",
+                "EcoEngine.Rendering.CodeBridge.ParticleCloudRendererFeature",
+                "GlobalVolumeCloud",
+                "VolumetricClouds",
+                "HorizonBasedAmbientOcclusion",
+                "SubsurfaceScattering",
+                "角色高精度阴影",
+                "FastFourierTransform",
+            };
+        }
+
+        object[] GetRendererDataList()
+        {
+            if (_urpAssetObj == null)
+                return null;
+
+            var urpType = _urpAssetObj.GetType();
+            foreach (string name in new[] { "rendererDataList", "m_RendererDataList" })
+            {
+                var prop = FindPropertyRecursive(urpType, name);
+                if (prop != null && prop.CanRead)
+                {
+                    var value = prop.GetValue(_urpAssetObj);
+                    return ConvertToObjectArray(value);
+                }
+
+                var field = FindFieldRecursive(urpType, name);
+                if (field != null)
+                {
+                    var value = field.GetValue(_urpAssetObj);
+                    return ConvertToObjectArray(value);
+                }
+            }
+
+            return null;
+        }
+
+        object[] GetRendererFeatures(object rendererData)
+        {
+            if (rendererData == null)
+                return null;
+
+            var type = rendererData.GetType();
+            foreach (string name in new[] { "rendererFeatures", "m_RendererFeatures" })
+            {
+                var prop = FindPropertyRecursive(type, name);
+                if (prop != null && prop.CanRead)
+                {
+                    var value = prop.GetValue(rendererData);
+                    return ConvertToObjectArray(value);
+                }
+
+                var field = FindFieldRecursive(type, name);
+                if (field != null)
+                {
+                    var value = field.GetValue(rendererData);
+                    return ConvertToObjectArray(value);
+                }
+            }
+
+            return null;
+        }
+
+        static object[] ConvertToObjectArray(object value)
+        {
+            if (value == null)
+                return null;
+
+            if (value is object[] arr)
+                return arr;
+
+            if (value is System.Collections.IEnumerable enumerable && !(value is string))
+            {
+                var list = new List<object>();
+                foreach (var item in enumerable)
+                    list.Add(item);
+                return list.ToArray();
+            }
+
+            return new[] { value };
+        }
+
+        static string GetFeatureName(object feature)
+        {
+            if (feature == null)
+                return null;
+
+            var type = feature.GetType();
+
+            foreach (string name in new[] { "name", "m_Name" })
+            {
+                var prop = FindPropertyRecursiveStatic(type, name);
+                if (prop != null && prop.CanRead)
+                    return prop.GetValue(feature)?.ToString();
+
+                var field = FindFieldRecursiveStatic(type, name);
+                if (field != null)
+                    return field.GetValue(feature)?.ToString();
+            }
+
+            return type.Name;
+        }
+
+        static bool SetFeatureActive(object feature, bool active)
+        {
+            if (feature == null)
+                return false;
+
+            var type = feature.GetType();
+            foreach (string name in new[] { "isActive", "active", "m_Active" })
+            {
+                var prop = FindPropertyRecursiveStatic(type, name);
+                if (prop != null && prop.CanRead && prop.CanWrite && prop.PropertyType == typeof(bool))
+                {
+                    bool old = (bool)prop.GetValue(feature);
+                    if (old != active)
+                    {
+                        prop.SetValue(feature, active);
+                        return true;
+                    }
+                    return false;
+                }
+
+                var field = FindFieldRecursiveStatic(type, name);
+                if (field != null && field.FieldType == typeof(bool))
+                {
+                    bool old = (bool)field.GetValue(feature);
+                    if (old != active)
+                    {
+                        field.SetValue(feature, active);
+                        return true;
+                    }
+                    return false;
+                }
+            }
+
+            return false;
+        }
+
+        static PropertyInfo FindPropertyRecursiveStatic(Type type, string memberName)
+        {
+            while (type != null)
+            {
+                var prop = type.GetProperty(memberName,
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.DeclaredOnly);
+                if (prop != null)
+                    return prop;
+                type = type.BaseType;
+            }
+            return null;
+        }
+
+        static FieldInfo FindFieldRecursiveStatic(Type type, string memberName)
+        {
+            while (type != null)
+            {
+                var field = type.GetField(memberName,
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.DeclaredOnly);
+                if (field != null)
+                    return field;
+                type = type.BaseType;
+            }
+            return null;
+        }
+
+        #endregion
+
+        #region Culling / Occlusion Test (Play Mode)
+
+        /// <summary>
+        /// Play-mode test: disable Unity Occlusion Culling and culling-related RendererFeatures
+        /// to see if rotation popping is caused by a culling system mismatch on Mac Metal.
+        /// In-memory only; restart to revert.
+        /// </summary>
+        void DisableCullingAndOcclusionInPlay()
+        {
+            if (_cullingSystemsDisabledInPlay)
+                return;
+
+            try
+            {
+                // Disable global occlusion culling via reflection (avoids compile-time dependency on some Unity versions/assemblies)
+                bool occlusionWasEnabled = GetGlobalOcclusionCullingEnabled();
+                SetGlobalOcclusionCullingEnabled(false);
+                Log($"[Culling Test] OcclusionCulling.enabled: {occlusionWasEnabled} -> false");
+
+                // Also disable per-camera occlusion culling
+                Camera[] cameras = Camera.allCameras;
+                for (int i = 0; i < cameras.Length; i++)
+                {
+                    Camera cam = cameras[i];
+                    if (cam == null || !IsGameCamera(cam))
+                        continue;
+                    if (cam.useOcclusionCulling)
+                    {
+                        cam.useOcclusionCulling = false;
+                        Log($"[Culling Test] Camera {cam.name} useOcclusionCulling -> false");
+                    }
+                }
+
+                // Only disable GPU HiZ occlusion. Virtual Geometry / Impostor must stay on:
+                // sm_stone_37c_m is VG (no MeshRenderer), turning VG off made Game view pop.
+                string[] cullingPatterns = new string[]
+                {
+                    "[Engine]HizCulling",
+                };
+
+                int disabledCount = 0;
+                int inspectedCount = 0;
+
+                object[] rendererDataList = GetRendererDataList();
+                if (rendererDataList != null)
+                {
+                    foreach (var rendererData in rendererDataList)
+                    {
+                        if (rendererData == null)
+                            continue;
+
+                        object[] features = GetRendererFeatures(rendererData);
+                        if (features == null)
+                            continue;
+
+                        foreach (var feature in features)
+                        {
+                            if (feature == null)
+                                continue;
+
+                            string featureName = GetFeatureName(feature);
+                            inspectedCount++;
+                            if (string.IsNullOrEmpty(featureName))
+                                continue;
+
+                            foreach (string pattern in cullingPatterns)
+                            {
+                                if (string.IsNullOrEmpty(pattern))
+                                    continue;
+
+                                if (featureName.IndexOf(pattern, StringComparison.OrdinalIgnoreCase) >= 0)
+                                {
+                                    if (SetFeatureActive(feature, false))
+                                    {
+                                        Log($"[Culling Test] DISABLED: {featureName} (matched '{pattern}')");
+                                        disabledCount++;
+                                    }
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                }
+
+                _cullingSystemsDisabledInPlay = true;
+                Log($"[Culling Test] Inspected {inspectedCount} feature(s), disabled {disabledCount}. Restart to revert.");
+            }
+            catch (Exception ex)
+            {
+                Log($"ERROR disabling culling/occlusion systems: {ex.Message}\n{ex.StackTrace}");
+            }
+        }
+
+        static bool GetGlobalOcclusionCullingEnabled()
+        {
+            try
+            {
+                Type t = FindOcclusionCullingType();
+                if (t == null)
+                    return false;
+
+                PropertyInfo p = t.GetProperty("enabled", BindingFlags.Public | BindingFlags.Static);
+                if (p != null && p.CanRead)
+                    return (bool)p.GetValue(null);
+
+                FieldInfo f = t.GetField("enabled", BindingFlags.Public | BindingFlags.Static);
+                if (f != null)
+                    return (bool)f.GetValue(null);
+            }
+            catch { }
+            return false;
+        }
+
+        static void SetGlobalOcclusionCullingEnabled(bool value)
+        {
+            try
+            {
+                Type t = FindOcclusionCullingType();
+                if (t == null)
+                    return;
+
+                PropertyInfo p = t.GetProperty("enabled", BindingFlags.Public | BindingFlags.Static);
+                if (p != null && p.CanWrite)
+                {
+                    p.SetValue(null, value);
+                    return;
+                }
+
+                FieldInfo f = t.GetField("enabled", BindingFlags.Public | BindingFlags.Static);
+                if (f != null)
+                    f.SetValue(null, value);
+            }
+            catch { }
+        }
+
+        static Type FindOcclusionCullingType()
+        {
+            Type t = Type.GetType("UnityEngine.OcclusionCulling, UnityEngine.CoreModule");
+            if (t != null)
+                return t;
+
+            foreach (var asm in AppDomain.CurrentDomain.GetAssemblies())
+            {
+                t = asm.GetType("UnityEngine.OcclusionCulling");
+                if (t != null)
+                    return t;
+            }
+
+            return null;
+        }
+
+        #endregion
+
+        #region BigWorld Camera Block Culling Test (Play Mode)
+
+        /// <summary>
+        /// Play-mode test: disable EcoEngine.BigWorld.Scene.m_bCheckBlockByCamera.
+        /// The BigWorld streaming system uses the camera frustum to load/unload scene blocks,
+        /// which appears to cause objects to pop in/out when rotating the camera after the
+        /// Unity/URP version iteration. Setting this flag to false makes block loading only
+        /// depend on player position, eliminating rotation-dependent popping.
+        /// In-memory only; restart to revert.
+        /// </summary>
+        void PatchBigWorldCameraCulling(MacGPUConfig cfg)
+        {
+            if (cfg == null || !cfg.disableBigWorldCameraBlockCulling)
+                return;
+
+            try
+            {
+                // The EcoEngine.Runtime assembly is loaded by the custom URP package.
+                if (_bigWorldSceneObj == null)
+                {
+                    Assembly ecoEngineAssembly = null;
+                    foreach (var asm in AppDomain.CurrentDomain.GetAssemblies())
+                    {
+                        if (asm.GetName().Name == "EcoEngine.Runtime")
+                        {
+                            ecoEngineAssembly = asm;
+                            break;
+                        }
+                    }
+
+                    if (ecoEngineAssembly == null)
+                    {
+                        // Not loaded yet; retry next frame from Update().
+                        return;
+                    }
+
+                    Type sceneManagerType = ecoEngineAssembly.GetType("EcoEngine.BigWorld.SceneManager");
+                    if (sceneManagerType == null)
+                    {
+                        Log("[BigWorld Culling] EcoEngine.BigWorld.SceneManager type not found.");
+                        return;
+                    }
+
+                    MethodInfo getActiveScene = sceneManagerType.GetMethod("GetActiveScene",
+                        BindingFlags.Public | BindingFlags.Static);
+                    if (getActiveScene == null)
+                    {
+                        Log("[BigWorld Culling] SceneManager.GetActiveScene() method not found.");
+                        return;
+                    }
+
+                    _bigWorldSceneObj = getActiveScene.Invoke(null, null);
+                    if (_bigWorldSceneObj == null)
+                    {
+                        // Active scene may not be created yet; retry next frame.
+                        return;
+                    }
+
+                    Type sceneType = ecoEngineAssembly.GetType("EcoEngine.BigWorld.Scene");
+                    _bigWorldCheckBlockField = sceneType?.GetField("m_bCheckBlockByCamera",
+                        BindingFlags.NonPublic | BindingFlags.Instance);
+                    _bigWorldEntityManagerField = sceneType?.GetField("m_EntityManager",
+                        BindingFlags.NonPublic | BindingFlags.Instance);
+
+                    Type entityManagerType = ecoEngineAssembly.GetType("EcoEngine.BigWorld.EntityManager");
+                    if (entityManagerType != null)
+                    {
+                        _bigWorldCameraExtendedRangeField = entityManagerType.GetField("m_CameraExtendedRange",
+                            BindingFlags.NonPublic | BindingFlags.Instance);
+                    }
+                }
+
+                if (_bigWorldSceneObj == null)
+                    return;
+
+                if (_bigWorldCheckBlockField != null)
+                {
+                    bool oldValue = (bool)_bigWorldCheckBlockField.GetValue(_bigWorldSceneObj);
+                    if (oldValue)
+                    {
+                        _bigWorldCheckBlockField.SetValue(_bigWorldSceneObj, false);
+                        Log("[BigWorld Culling] Set Scene.m_bCheckBlockByCamera: True -> False");
+                    }
+                    else if (!_bigWorldCameraCullingDisabled)
+                    {
+                        Log("[BigWorld Culling] Scene.m_bCheckBlockByCamera already False");
+                    }
+                }
+
+                if (_bigWorldCameraExtendedRangeField != null && cfg.bigWorldCameraExtendedRange > 0f)
+                {
+                    object entityManager = _bigWorldEntityManagerField?.GetValue(_bigWorldSceneObj);
+                    if (entityManager != null)
+                    {
+                        float oldRange = (float)_bigWorldCameraExtendedRangeField.GetValue(entityManager);
+                        if (Mathf.Abs(oldRange - cfg.bigWorldCameraExtendedRange) > 0.001f)
+                        {
+                            _bigWorldCameraExtendedRangeField.SetValue(entityManager, cfg.bigWorldCameraExtendedRange);
+                            Log($"[BigWorld Culling] EntityManager.m_CameraExtendedRange: {oldRange} -> {cfg.bigWorldCameraExtendedRange}");
+                        }
+                    }
+                }
+
+                _bigWorldCameraCullingDisabled = true;
+            }
+            catch (Exception ex)
+            {
+                Log($"ERROR patching BigWorld camera culling: {ex.Message}\n{ex.StackTrace}");
+            }
+        }
+
+        #endregion
+
+        #region Game View VG / Scene Camera Isolation (Play Mode)
+
+        /// <summary>
+        /// sm_stone_37c_m is Virtual Geometry, not a MeshRenderer. The previous culling
+        /// test turned VG off. Restore it so Game view can draw those instances.
+        /// In-memory only; restart to revert.
+        /// </summary>
+        void RestoreVirtualGeometryInPlay(MacGPUConfig cfg)
+        {
+            if (cfg == null || !cfg.restoreVirtualGeometryInPlay)
+                return;
+            if (_virtualGeometryRestoredInPlay || _urpAssetObj == null)
+                return;
+
+            string[] restorePatterns = new string[]
+            {
+                "[Engine] Virtual Geometry",
+                "[Engine]Impostor",
+                "[Engine]TerrainVT",
+                "[Game]场景分层渲染",
+                "[Engine]ShadowCache",
+            };
+
+            try
+            {
+                int restored = 0;
+                object[] rendererDataList = GetRendererDataList();
+                if (rendererDataList != null)
+                {
+                    foreach (var rendererData in rendererDataList)
+                    {
+                        if (rendererData == null)
+                            continue;
+
+                        object[] features = GetRendererFeatures(rendererData);
+                        if (features == null)
+                            continue;
+
+                        foreach (var feature in features)
+                        {
+                            if (feature == null)
+                                continue;
+
+                            string featureName = GetFeatureName(feature);
+                            if (string.IsNullOrEmpty(featureName))
+                                continue;
+
+                            foreach (string pattern in restorePatterns)
+                            {
+                                if (featureName.IndexOf(pattern, StringComparison.OrdinalIgnoreCase) < 0)
+                                    continue;
+                                if (SetFeatureActive(feature, true))
+                                {
+                                    Log($"[VG Restore] ENABLED: {featureName}");
+                                    restored++;
+                                }
+                                break;
+                            }
+                        }
+                    }
+                }
+
+                Type vgType = Type.GetType("EcoEngine.Rendering.Universal.VirtualGeometryRenderFeature, EcoEngine.Runtime");
+                if (vgType == null)
+                {
+                    foreach (var asm in AppDomain.CurrentDomain.GetAssemblies())
+                    {
+                        if (asm.GetName().Name != "EcoEngine.Runtime")
+                            continue;
+                        vgType = asm.GetType("EcoEngine.Rendering.Universal.VirtualGeometryRenderFeature");
+                        break;
+                    }
+                }
+
+                if (vgType != null)
+                {
+                    FieldInfo configOff = vgType.GetField("ConfigOff", BindingFlags.Public | BindingFlags.Static);
+                    if (configOff != null && configOff.FieldType == typeof(bool) && (bool)configOff.GetValue(null))
+                    {
+                        configOff.SetValue(null, false);
+                        Log("[VG Restore] VirtualGeometryRenderFeature.ConfigOff -> false");
+                    }
+
+                    FieldInfo enabledField = vgType.GetField("m_Enabled", BindingFlags.NonPublic | BindingFlags.Static);
+                    if (enabledField != null && enabledField.FieldType == typeof(bool))
+                    {
+                        bool old = (bool)enabledField.GetValue(null);
+                        if (!old)
+                        {
+                            enabledField.SetValue(null, true);
+                            Log("[VG Restore] VirtualGeometryRenderFeature.m_Enabled: False -> True");
+                        }
+                    }
+                }
+
+                _virtualGeometryRestoredInPlay = true;
+                Log($"[VG Restore] Restored {restored} RendererFeature(s). Keep HizCulling off.");
+            }
+            catch (Exception ex)
+            {
+                Log($"ERROR restoring Virtual Geometry: {ex.Message}\n{ex.StackTrace}");
+            }
+        }
+
+        /// <summary>
+        /// VG visibility is stored in global GPU buffers. SceneView cameras also run
+        /// VGVisibilityPass and overwrite Game camera results, which looks like
+        /// objects popping while rotating the Game view. Disable Scene cameras in Play.
+        /// Scene window is already unusable this round; Game view is the target.
+        /// </summary>
+        void DisableSceneViewCamerasInPlay(MacGPUConfig cfg)
+        {
+            if (!Application.isPlaying)
+                return;
+
+#if UNITY_EDITOR
+            try
+            {
+                var sceneViews = UnityEditor.SceneView.sceneViews;
+                if (sceneViews == null)
+                    return;
+
+                for (int i = 0; i < sceneViews.Count; i++)
+                {
+                    var sv = sceneViews[i] as UnityEditor.SceneView;
+                    if (sv == null)
+                        continue;
+
+                    Camera cam = sv.camera;
+                    if (cam != null && cam.enabled)
+                    {
+                        cam.enabled = false;
+                        Log($"[Game View] Disabled SceneView camera '{cam.name}' in Play (VG global cull buffer).");
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Log($"ERROR disabling SceneView cameras: {ex.Message}");
+            }
+#endif
+        }
+
+        void InjectVgGpuVpFix()
+        {
+            if (_vgGpuVpFixInjected)
+                return;
+            if (!Application.isPlaying)
+                return;
+
+            try
+            {
+                Camera[] cameras = Camera.allCameras;
+                bool injectedAny = false;
+                for (int i = 0; i < cameras.Length; i++)
+                {
+                    Camera cam = cameras[i];
+                    if (cam == null || !IsGameCamera(cam))
+                        continue;
+
+                    object additional = FindUniversalAdditionalCameraData(cam);
+                    if (additional == null)
+                        continue;
+
+                    PropertyInfo rendererProp = additional.GetType().GetProperty("scriptableRenderer",
+                        BindingFlags.Public | BindingFlags.Instance);
+                    if (rendererProp == null)
+                        continue;
+
+                    object renderer = rendererProp.GetValue(additional);
+                    if (renderer == null)
+                        continue;
+
+                    FieldInfo listField = FindFieldRecursive(renderer.GetType(), "m_RendererFeatures");
+                    if (listField == null)
+                        continue;
+
+                    var list = listField.GetValue(renderer) as System.Collections.IList;
+                    if (list == null)
+                        continue;
+
+                    bool already = false;
+                    for (int f = 0; f < list.Count; f++)
+                    {
+                        if (list[f] != null && list[f].GetType() == typeof(MacVgGpuVpFixFeature))
+                        {
+                            already = true;
+                            break;
+                        }
+                    }
+
+                    if (!already)
+                    {
+                        var feature = ScriptableObject.CreateInstance<MacVgGpuVpFixFeature>();
+                        feature.Create();
+                        list.Add(feature);
+                        Log("[VG VP Fix] Injected MacVgGpuVpFixFeature into live renderer.");
+                    }
+                    injectedAny = true;
+                }
+
+                if (injectedAny)
+                    _vgGpuVpFixInjected = true;
+            }
+            catch (Exception ex)
+            {
+                Log($"ERROR injecting VG GPU VP fix: {ex.Message}\n{ex.StackTrace}");
+            }
+        }
+
+        object FindUniversalAdditionalCameraData(Camera cam)
+        {
+            if (cam == null)
+                return null;
+            Component[] comps = cam.GetComponents<Component>();
+            for (int i = 0; i < comps.Length; i++)
+            {
+                if (comps[i] == null)
+                    continue;
+                string tn = comps[i].GetType().Name;
+                if (tn.IndexOf("UniversalAdditionalCameraData", StringComparison.Ordinal) >= 0)
+                    return comps[i];
+            }
+            return null;
+        }
+
+        void FreezeGpuInstancingFrustumOnRotate()
+        {
+            try
+            {
+                Type mgrType = null;
+                foreach (var asm in AppDomain.CurrentDomain.GetAssemblies())
+                {
+                    mgrType = asm.GetType("EcoEngine.BigWorld.GeometryInstancingManager")
+                              ?? asm.GetType("EcoEngine.Rendering.GeometryInstancingManager");
+                    if (mgrType != null)
+                        break;
+                }
+                if (mgrType == null)
+                    return;
+
+                PropertyInfo instProp = mgrType.GetProperty("Instance", BindingFlags.Public | BindingFlags.Static);
+                object mgr = instProp != null ? instProp.GetValue(null) : null;
+                if (mgr == null)
+                    return;
+
+                Camera gameCam = null;
+                Camera[] cameras = Camera.allCameras;
+                for (int i = 0; i < cameras.Length; i++)
+                {
+                    if (cameras[i] != null && IsGameCamera(cameras[i]))
+                    {
+                        gameCam = cameras[i];
+                        break;
+                    }
+                }
+
+                // Pin last-seen transform so GeometryInstancingManager.Update does not
+                // bump BoundsCheckCode (and recull) when the Game camera rotates.
+                if (gameCam != null)
+                {
+                    FieldInfo posField = mgrType.GetField("m_position", BindingFlags.NonPublic | BindingFlags.Instance);
+                    FieldInfo rotField = mgrType.GetField("m_rotate", BindingFlags.NonPublic | BindingFlags.Instance);
+                    if (posField != null)
+                        posField.SetValue(mgr, gameCam.transform.position);
+                    if (rotField != null)
+                        rotField.SetValue(mgr, gameCam.transform.eulerAngles);
+                }
+
+                FieldInfo codeField = mgrType.GetField("BoundsCheckCode", BindingFlags.Public | BindingFlags.Instance);
+                if (codeField == null || codeField.FieldType != typeof(uint))
+                    return;
+
+                uint code = (uint)codeField.GetValue(mgr);
+                if (!_instancingBoundsCodeFrozen)
+                {
+                    if (code == 0)
+                        return;
+                    _frozenInstancingBoundsCode = code;
+                    _instancingBoundsCodeFrozen = true;
+                    Log($"[Instancing Freeze] Freeze BoundsCheckCode at {code} so camera rotation does not recull GPU instances.");
+                    return;
+                }
+
+                if (code != _frozenInstancingBoundsCode)
+                    codeField.SetValue(mgr, _frozenInstancingBoundsCode);
+            }
+            catch (Exception ex)
+            {
+                Log($"ERROR freezing instancing frustum: {ex.Message}");
+            }
+        }
+
+        #endregion
+
         #region Auto-Reduce (Emergency)
 
         void TriggerAutoReduce()
@@ -554,6 +1478,16 @@ namespace Performance.MacGPU
             }
 
             return null;
+        }
+
+        static bool IsByRefProperty(PropertyInfo prop)
+        {
+            if (prop == null)
+                return true;
+            if (prop.PropertyType.IsByRef)
+                return true;
+            MethodInfo getter = prop.GetGetMethod(true);
+            return getter != null && getter.ReturnType.IsByRef;
         }
 
         IEnumerable<string> GetCandidateMemberNames(string memberName)

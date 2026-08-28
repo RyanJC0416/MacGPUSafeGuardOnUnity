@@ -214,7 +214,7 @@ struct SettingsWindow: View {
 
                         injectorChannelSection(
                             title: "1. Mac GPU Safe Guard (runtime)",
-                            subtitle: "Play-mode protection scripts under Assets/scripts/.",
+                            subtitle: "Play-mode GPU protection + Game view VG cull fix (after URP update).",
                             targets: state.injectorTargets,
                             results: state.lastApplyResults,
                             applyLabel: "Apply Mac GPU Safe Guard",

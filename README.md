@@ -4,7 +4,7 @@ macOS 上的 Unity Editor 稳定性工具集：**PlayMode GPU 保护**、**Scene
 
 面向 EcoEngine URP / TCRender 项目在 Mac 上常见的：Play 卡死、Scene 窗口黑屏/无贴图、GPU 压力过高等问题。
 
-**当前版本**: v1.8.4 · [Releases](https://github.com/RyanJC0416/MacGPUSafeGuardOnUnity/releases) · 详细变更见 [CHANGELOG.md](CHANGELOG.md)
+**当前版本**: v1.8.5 · [Releases](https://github.com/RyanJC0416/MacGPUSafeGuardOnUnity/releases) · 详细变更见 [CHANGELOG.md](CHANGELOG.md)
 
 ---
 
@@ -23,8 +23,9 @@ macOS 上的 Unity Editor 稳定性工具集：**PlayMode GPU 保护**、**Scene
 
 | 文件 | 作用 |
 |------|------|
-| `MacGPUSafeGuard.cs` | PlayMode GPU 降级、心跳、MagicaCloth 隔离、RendererFeature 黑名单等 |
+| `MacGPUSafeGuard.cs` | PlayMode GPU 降级、心跳、MagicaCloth 隔离、RendererFeature 黑名单、Game 窗口 VG 裁剪修复等 |
 | `MacGPUConfig.cs` | 可配置 ScriptableObject |
+| `MacVgGpuVpFixFeature.cs` | Metal Play 下 Game 相机 Virtual Geometry 改用 GPU 投影裁剪，修复 URP 更新后转镜头闪物件 |
 
 > 不再修改 `SetURPSettings.cs`；URP 切换维持项目 depot 原版。
 
@@ -109,7 +110,7 @@ App 内置资源：
 
 ```
 GpuSafeGuard.app/Contents/Resources/
-├── templates/             # Mac GPU Safe Guard（2 个 .cs）
+├── templates/             # Mac GPU Safe Guard（3 个 .cs）
 ├── scene-guard/           # SceneGuard 核心
 └── scene-guard-tools/     # SceneGuard 诊断
 ```
@@ -141,6 +142,7 @@ bash kill-unity.sh --no-snapshot
 | 场景 | 做法 |
 |------|------|
 | PlayMode 卡死 | Apply Mac GPU Safe Guard + 开 Watchdog |
+| URP 更新后 Play 下 Game 窗口转镜头闪物件 | Apply Mac GPU Safe Guard（v1.8.5+） |
 | Scene 无贴图/黑屏 | Apply SceneGuard（v1.8.4+ 开 Editor 即自动启用） |
 | Scene / Game 天空色差 | v1.8.3+ 已从天空材质/环境光采样 |
 | 补丁写入 P4 | Settings 选 CL → Apply 对应通道 |
@@ -152,6 +154,7 @@ bash kill-unity.sh --no-snapshot
 
 | 版本 | 要点 |
 |------|------|
+| **v1.8.5** | 修复 URP 更新后 Play 下 Game 窗口转镜头闪物件（VG GPU 投影） |
 | **v1.8.4** | 移除全部 Performance 菜单；SceneGuard / Mac GPU 自动默认 |
 | **v1.8.3** | SceneGuard 天空盒 fallback 从材质/环境光采样 |
 | **v1.8.2** | Settings 内 **New CL…** 创建 P4 changelist |
