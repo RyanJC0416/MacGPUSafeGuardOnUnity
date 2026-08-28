@@ -47,9 +47,6 @@ struct MainWindow: View {
                     .bold()
                 Spacer()
                 UpdateBadge()
-                Button("Settings") {
-                    openWindow(id: "settings")
-                }
             }
             .padding(.horizontal, 16)
             .padding(.vertical, 12)
@@ -62,9 +59,21 @@ struct MainWindow: View {
             }
             .padding(16)
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .frame(minWidth: 740, minHeight: 700)
+        .toolbar {
+            ToolbarItem(placement: .primaryAction) {
+                Button("Settings") {
+                    openWindow(id: "settings")
+                }
+                .focusEffectDisabled()
+            }
+        }
         .onAppear {
             state.refreshWatchdog()
+            DispatchQueue.main.async {
+                NSApp.keyWindow?.makeFirstResponder(nil)
+            }
         }
     }
 

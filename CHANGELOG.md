@@ -1,5 +1,12 @@
 # MacGPUSafeGuard Changelog
 
+## v1.8.7 - 2026-08-28 - Main window Settings layout
+
+### 变更
+
+- Settings 改到窗口工具栏，去掉默认键盘焦点圈
+- 主窗口内容顶对齐，拉高窗口时 Settings 不再被标题栏裁掉
+
 ## v1.8.6 - 2026-08-28 - Auto-update download retries
 
 ### 变更

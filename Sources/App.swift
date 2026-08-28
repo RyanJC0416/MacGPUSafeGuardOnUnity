@@ -16,7 +16,7 @@ struct GpuSafeGuardApp: App {
         WindowGroup(id: "main") {
             MainWindow()
                 .environmentObject(state)
-                .frame(minWidth: 740, minHeight: 580)
+                .frame(minWidth: 740, minHeight: 580, alignment: .top)
         }
         .defaultSize(width: 780, height: 720)
         .defaultPosition(.center)

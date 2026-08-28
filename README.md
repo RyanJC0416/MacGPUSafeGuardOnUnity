@@ -4,7 +4,7 @@ macOS 上的 Unity Editor 稳定性工具集：**PlayMode GPU 保护**、**Scene
 
 面向 EcoEngine URP / TCRender 项目在 Mac 上常见的：Play 卡死、Scene 窗口黑屏/无贴图、GPU 压力过高等问题。
 
-**当前版本**: v1.8.6 · [Releases](https://github.com/RyanJC0416/MacGPUSafeGuardOnUnity/releases) · 详细变更见 [CHANGELOG.md](CHANGELOG.md)
+**当前版本**: v1.8.7 · [Releases](https://github.com/RyanJC0416/MacGPUSafeGuardOnUnity/releases) · 详细变更见 [CHANGELOG.md](CHANGELOG.md)
 
 ---
 
@@ -154,6 +154,7 @@ bash kill-unity.sh --no-snapshot
 
 | 版本 | 要点 |
 |------|------|
+| **v1.8.7** | 主窗口 Settings 去焦点圈，拉高窗口不再被标题栏裁掉 |
 | **v1.8.6** | 自动更新：下载失败重试，不再误报 Unzip failed |
 | **v1.8.5** | 修复 URP 更新后 Play 下 Game 窗口转镜头闪物件（VG GPU 投影） |
 | **v1.8.4** | 移除全部 Performance 菜单；SceneGuard / Mac GPU 自动默认 |
