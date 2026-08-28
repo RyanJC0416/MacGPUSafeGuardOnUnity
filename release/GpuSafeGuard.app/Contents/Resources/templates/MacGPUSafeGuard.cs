@@ -57,6 +57,21 @@ namespace Performance.MacGPU
         private float _lastAutoReduceTime = -999f;
         private float _lastVSyncForceLogTime = -999f;
         private float _lastCameraForceLogTime = -999f;
+        private bool _ldrAmbientLogged;
+        private bool _ldrLensFlareLogged;
+        private float _lastLensFlareScanTime = -999f;
+        private readonly List<Behaviour> _cachedLensFlareControllers = new List<Behaviour>();
+        private readonly List<object> _cachedVolumeProfiles = new List<object>();
+        private readonly List<Behaviour> _cachedLensFlareComponents = new List<Behaviour>();
+        private bool _ldrLiuguangLogged;
+        private float _lastLiuguangScanTime = -999f;
+        private readonly HashSet<int> _clampedLiuguangRendererIds = new HashSet<int>();
+        private static readonly int DstBlendId = Shader.PropertyToID("_DstBlend");
+        private static readonly int BlendModeId = Shader.PropertyToID("_Blend");
+        private static readonly int SrcBlendId = Shader.PropertyToID("_SrcBlend");
+        private static readonly int SrcBlendAlphaId = Shader.PropertyToID("_SrcBlendAlpha");
+        private static readonly int DstBlendAlphaId = Shader.PropertyToID("_DstBlendAlpha");
+        private static readonly int SurfaceId = Shader.PropertyToID("_Surface");
         private readonly HashSet<int> _aaAppliedCameraIds = new HashSet<int>();
         private bool _rendererFeaturesDisabledInPlay;
         private bool _cullingSystemsDisabledInPlay;
@@ -112,6 +127,9 @@ namespace Performance.MacGPU
 
             MaintainSafeVSync();
             MaintainGameCameraSafeguards();
+            MaintainLdrAmbientFloor();
+            MaintainLdrLensFlareMute();
+            MaintainLdrLiuguangVfxClamp();
             PatchBigWorldCameraCulling(config);
             DisableSceneViewCamerasInPlay(config);
             RestoreVirtualGeometryInPlay(config);
@@ -210,6 +228,388 @@ namespace Performance.MacGPU
                 _lastCameraForceLogTime = Time.unscaledTime;
                 Log($"Forced HDR/MSAA on Game cameras (allowHDR={config.allowHDR}, allowMSAA={config.allowMSAA}, touched={forced})");
             }
+        }
+
+        /// <summary>
+        /// Play dump: ambientMode=Flat ambientLight=black, live MainLight intensity=0.4.
+        /// SkyGI/HDR auto-exposure are off on Mac, so unlit surfaces collapse. Fill ambient only;
+        /// do not raise MainLight (that recreates sun blowout). Rollback: fillBlackAmbientWhenHdrDisabled=false.
+        /// </summary>
+        void MaintainLdrAmbientFloor()
+        {
+            if (!Application.isPlaying || config.allowHDR || !config.fillBlackAmbientWhenHdrDisabled)
+                return;
+
+            if (RenderSettings.ambientMode != UnityEngine.Rendering.AmbientMode.Flat)
+                return;
+
+            Color ambient = RenderSettings.ambientLight;
+            float maxChannel = Mathf.Max(ambient.r, Mathf.Max(ambient.g, ambient.b));
+            if (maxChannel >= 0.05f)
+                return;
+
+            Color fill = new Color(0.22f, 0.24f, 0.28f, 1f);
+            RenderSettings.ambientLight = fill;
+
+            if (!_ldrAmbientLogged)
+            {
+                _ldrAmbientLogged = true;
+                Log($"[LDR Ambient] black ambient + HDR off → fill {fill} (MainLight left unchanged)");
+            }
+        }
+
+        /// <summary>
+        /// Type-name scan hit 0 profiles. post_process_volume is CodeBridge Volume + pps_global_post01
+        /// (Bloom 0.625 + LensFlare). Find by GameObject name / sharedProfile. Mute Bloom+Flare only.
+        /// Rollback: muteLensFlareWhenHdrDisabled=false.
+        /// </summary>
+        void MaintainLdrLensFlareMute()
+        {
+            if (!Application.isPlaying || config.allowHDR || !config.muteLensFlareWhenHdrDisabled)
+                return;
+
+            if (Time.unscaledTime - _lastLensFlareScanTime > 2f)
+                ScanLensFlareTargets();
+
+            int controllers = 0;
+            for (int i = 0; i < _cachedLensFlareControllers.Count; i++)
+            {
+                Behaviour controller = _cachedLensFlareControllers[i];
+                if (controller == null)
+                    continue;
+                SetMemberFloat(controller, "intensity", 0f);
+                SetMemberFloat(controller, "bloomScaler", 0f);
+                SetMemberBool(controller, "active", false);
+                if (controller.enabled)
+                    controller.enabled = false;
+                controllers++;
+            }
+
+            int components = 0;
+            for (int i = 0; i < _cachedLensFlareComponents.Count; i++)
+            {
+                Behaviour flare = _cachedLensFlareComponents[i];
+                if (flare == null)
+                    continue;
+                if (flare.enabled)
+                    flare.enabled = false;
+                components++;
+            }
+
+            int mutedComps = 0;
+            for (int i = 0; i < _cachedVolumeProfiles.Count; i++)
+            {
+                object profile = _cachedVolumeProfiles[i];
+                if (profile == null)
+                    continue;
+                mutedComps += MuteNamedVolumeComponent(profile, "LensFlareVolume");
+            }
+
+            if (!_ldrLensFlareLogged && (controllers + components + mutedComps + _cachedVolumeProfiles.Count) > 0)
+            {
+                _ldrLensFlareLogged = true;
+                Log($"[LDR Post] HDR off → muted LensFlare only (controllers={controllers}, srp={components}, profileHits={mutedComps}, profiles={_cachedVolumeProfiles.Count})");
+            }
+        }
+
+        void ScanLensFlareTargets()
+        {
+            _lastLensFlareScanTime = Time.unscaledTime;
+            _cachedLensFlareControllers.Clear();
+            _cachedLensFlareComponents.Clear();
+            _cachedVolumeProfiles.Clear();
+
+            CollectBehavioursByType(
+                _cachedLensFlareControllers,
+                "EpCutscene.Engine.LensFlareVolumeController");
+            CollectBehavioursByType(
+                _cachedLensFlareComponents,
+                "UnityEngine.Rendering.LensFlareComponentSRP",
+                "EcoEngine.Rendering.Universal.LensFlareComponentSRP",
+                "EcoEngine.Rendering.CodeBridge.LensFlareComponentSRP");
+
+            CollectVolumeProfilesFromScene();
+        }
+
+        void CollectVolumeProfilesFromScene()
+        {
+            GameObject[] objects = Resources.FindObjectsOfTypeAll<GameObject>();
+            for (int i = 0; i < objects.Length; i++)
+            {
+                GameObject go = objects[i];
+                if (go == null || !go.scene.IsValid())
+                    continue;
+
+                string name = go.name;
+                bool nameHit = name == "post_process_volume"
+                               || name.IndexOf("volume", StringComparison.OrdinalIgnoreCase) >= 0
+                               || name.IndexOf("pps_", StringComparison.OrdinalIgnoreCase) >= 0;
+                if (!nameHit)
+                    continue;
+
+                Component[] comps = go.GetComponents<Component>();
+                for (int c = 0; c < comps.Length; c++)
+                {
+                    Component comp = comps[c];
+                    if (comp == null)
+                        continue;
+                    object profile = GetMemberValue(comp, "sharedProfile")
+                                     ?? GetMemberValue(comp, "profile");
+                    if (profile == null || _cachedVolumeProfiles.Contains(profile))
+                        continue;
+                    _cachedVolumeProfiles.Add(profile);
+                    if (!_ldrLensFlareLogged)
+                        Log($"[LDR Post] found volume go={go.name} type={comp.GetType().FullName} profile={profile}");
+                }
+            }
+        }
+
+        /// <summary>
+        /// Mac LDR: only TCRender/Base additive scene sheets (e.g. liuguang quads).
+        /// TZEffect particles are authored Additive; converting them to Alpha made 500+
+        /// glows into white cards and removed the night-scene fill light.
+        /// Keep Additive, but SrcAlpha+One so texture alpha punches holes.
+        /// </summary>
+        void MaintainLdrLiuguangVfxClamp()
+        {
+            if (!Application.isPlaying || config.allowHDR || !config.clampLiuguangVfxWhenHdrDisabled)
+                return;
+
+            if (Time.unscaledTime - _lastLiuguangScanTime < 1f)
+                return;
+            _lastLiuguangScanTime = Time.unscaledTime;
+
+            Renderer[] renderers = Resources.FindObjectsOfTypeAll<Renderer>();
+            int clamped = 0;
+            for (int i = 0; i < renderers.Length; i++)
+            {
+                Renderer renderer = renderers[i];
+                if (renderer == null || !renderer.gameObject.scene.IsValid())
+                    continue;
+                if (renderer is ParticleSystemRenderer)
+                    continue;
+
+                int id = renderer.GetInstanceID();
+                if (_clampedLiuguangRendererIds.Contains(id))
+                    continue;
+
+                if (!ClampAdditiveEmissiveVfxRenderer(renderer))
+                    continue;
+
+                _clampedLiuguangRendererIds.Add(id);
+                clamped++;
+                if (clamped <= 12)
+                    Log($"[LDR VFX] additive SrcAlpha+One {renderer.gameObject.name} shader={GetRendererShaderName(renderer)}");
+            }
+
+            if (!_ldrLiuguangLogged)
+            {
+                _ldrLiuguangLogged = true;
+                Log($"[LDR VFX] HDR off → TCBaseLit additive to SrcAlpha+One (new={clamped}, total={_clampedLiuguangRendererIds.Count})");
+            }
+            else if (clamped > 0)
+            {
+                Log($"[LDR VFX] clamped +{clamped} more, total={_clampedLiuguangRendererIds.Count}");
+            }
+        }
+
+        static bool IsAdditiveSceneVfxMaterial(Material mat)
+        {
+            if (mat == null || mat.shader == null)
+                return false;
+
+            // TZEffect uses _Blend as BlendOp, not URP BlendMode. Do not touch it.
+            if (!mat.shader.name.StartsWith("TCRender/Base/", StringComparison.Ordinal))
+                return false;
+
+            if (mat.HasProperty(BlendModeId) && Mathf.RoundToInt(mat.GetFloat(BlendModeId)) == 2)
+                return true;
+            if (mat.HasProperty(SrcBlendId) && mat.HasProperty(DstBlendId)
+                && Mathf.RoundToInt(mat.GetFloat(SrcBlendId)) == 1
+                && Mathf.RoundToInt(mat.GetFloat(DstBlendId)) == 1)
+                return true;
+            return false;
+        }
+
+        static string GetRendererShaderName(Renderer renderer)
+        {
+            Material mat = renderer.sharedMaterial;
+            if (mat == null || mat.shader == null)
+                return "null";
+            return mat.shader.name;
+        }
+
+        bool ClampAdditiveEmissiveVfxRenderer(Renderer renderer)
+        {
+            Material[] shared = renderer.sharedMaterials;
+            if (shared == null || shared.Length == 0)
+                return false;
+
+            bool anyMatch = false;
+            for (int i = 0; i < shared.Length; i++)
+            {
+                if (IsAdditiveSceneVfxMaterial(shared[i]))
+                {
+                    anyMatch = true;
+                    break;
+                }
+            }
+            if (!anyMatch)
+                return false;
+
+            Material[] mats = renderer.materials;
+            if (mats == null || mats.Length == 0)
+                return false;
+
+            bool touched = false;
+            for (int i = 0; i < mats.Length; i++)
+            {
+                Material mat = mats[i];
+                if (!IsAdditiveSceneVfxMaterial(mat))
+                    continue;
+                ConvertAdditiveToAlphaAdditive(mat);
+                touched = true;
+            }
+            return touched;
+        }
+
+        static void ConvertAdditiveToAlphaAdditive(Material mat)
+        {
+            const float srcAlpha = (float)UnityEngine.Rendering.BlendMode.SrcAlpha;
+            const float one = (float)UnityEngine.Rendering.BlendMode.One;
+
+            if (mat.HasProperty(BlendModeId))
+                mat.SetFloat(BlendModeId, 2f);
+            if (mat.HasProperty(SurfaceId))
+                mat.SetFloat(SurfaceId, 1f);
+            if (mat.HasProperty(SrcBlendId))
+                mat.SetFloat(SrcBlendId, srcAlpha);
+            if (mat.HasProperty(DstBlendId))
+                mat.SetFloat(DstBlendId, one);
+            if (mat.HasProperty(SrcBlendAlphaId))
+                mat.SetFloat(SrcBlendAlphaId, one);
+            if (mat.HasProperty(DstBlendAlphaId))
+                mat.SetFloat(DstBlendAlphaId, one);
+            if (mat.HasProperty("_BlendModePreserveSpecular"))
+                mat.SetFloat("_BlendModePreserveSpecular", 0f);
+
+            mat.SetOverrideTag("RenderType", "Transparent");
+            if (mat.renderQueue < 3000)
+                mat.renderQueue = 3000;
+        }
+
+        void CollectBehavioursByType(List<Behaviour> dest, params string[] typeNames)
+        {
+            for (int i = 0; i < typeNames.Length; i++)
+            {
+                Type type = FindLoadedType(typeNames[i]);
+                if (type == null)
+                    continue;
+                UnityEngine.Object[] found = Resources.FindObjectsOfTypeAll(type);
+                for (int j = 0; j < found.Length; j++)
+                {
+                    var behaviour = found[j] as Behaviour;
+                    if (behaviour == null || !behaviour.gameObject.scene.IsValid())
+                        continue;
+                    dest.Add(behaviour);
+                }
+            }
+        }
+
+        int MuteNamedVolumeComponent(object profile, string componentTypeName)
+        {
+            object components = GetMemberValue(profile, "components");
+            if (!(components is System.Collections.IEnumerable enumerable))
+                return 0;
+
+            int muted = 0;
+            foreach (object component in enumerable)
+            {
+                if (component == null || component.GetType().Name != componentTypeName)
+                    continue;
+                SetMemberBool(component, "active", false);
+                OverrideFloatParameter(component, "intensity", 0f);
+                OverrideFloatParameter(component, "bloomScaler", 0f);
+                muted++;
+            }
+            return muted;
+        }
+
+        static Type FindLoadedType(string fullName)
+        {
+            Type type = Type.GetType(fullName);
+            if (type != null)
+                return type;
+
+            Assembly[] assemblies = AppDomain.CurrentDomain.GetAssemblies();
+            for (int i = 0; i < assemblies.Length; i++)
+            {
+                type = assemblies[i].GetType(fullName);
+                if (type != null)
+                    return type;
+            }
+            return null;
+        }
+
+        object GetMemberValue(object target, string memberName)
+        {
+            if (target == null)
+                return null;
+            Type type = target.GetType();
+            PropertyInfo prop = FindPropertyRecursive(type, memberName);
+            if (prop != null && prop.CanRead && !IsByRefProperty(prop))
+                return prop.GetValue(target);
+            FieldInfo field = FindFieldRecursive(type, memberName);
+            return field != null ? field.GetValue(target) : null;
+        }
+
+        void SetMemberFloat(object target, string memberName, float value)
+        {
+            if (target == null)
+                return;
+            Type type = target.GetType();
+            FieldInfo field = FindFieldRecursive(type, memberName);
+            if (field != null && field.FieldType == typeof(float))
+            {
+                field.SetValue(target, value);
+                return;
+            }
+            PropertyInfo prop = FindPropertyRecursive(type, memberName);
+            if (prop != null && prop.CanWrite && prop.PropertyType == typeof(float))
+                prop.SetValue(target, value);
+        }
+
+        void SetMemberBool(object target, string memberName, bool value)
+        {
+            if (target == null)
+                return;
+            Type type = target.GetType();
+            FieldInfo field = FindFieldRecursive(type, memberName);
+            if (field != null && field.FieldType == typeof(bool))
+            {
+                field.SetValue(target, value);
+                return;
+            }
+            PropertyInfo prop = FindPropertyRecursive(type, memberName);
+            if (prop != null && prop.CanWrite && prop.PropertyType == typeof(bool))
+                prop.SetValue(target, value);
+        }
+
+        void OverrideFloatParameter(object component, string parameterName, float value)
+        {
+            object parameter = GetMemberValue(component, parameterName);
+            if (parameter == null)
+                return;
+            Type paramType = parameter.GetType();
+            MethodInfo overrideMethod = paramType.GetMethod("Override", new[] { typeof(float) });
+            if (overrideMethod != null)
+            {
+                overrideMethod.Invoke(parameter, new object[] { value });
+                return;
+            }
+            PropertyInfo valueProp = FindPropertyRecursive(paramType, "value");
+            if (valueProp != null && valueProp.CanWrite && valueProp.PropertyType == typeof(float))
+                valueProp.SetValue(parameter, value);
         }
 
         #endregion

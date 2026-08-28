@@ -4,7 +4,7 @@ macOS 上的 Unity Editor 稳定性工具集：**PlayMode GPU 保护**、**Scene
 
 面向 EcoEngine URP / TCRender 项目在 Mac 上常见的：Play 卡死、Scene 窗口黑屏/无贴图、GPU 压力过高等问题。
 
-**当前版本**: v1.8.8 · [Releases](https://github.com/RyanJC0416/MacGPUSafeGuardOnUnity/releases) · 详细变更见 [CHANGELOG.md](CHANGELOG.md)
+**当前版本**: v1.8.9 · [Releases](https://github.com/RyanJC0416/MacGPUSafeGuardOnUnity/releases) · 详细变更见 [CHANGELOG.md](CHANGELOG.md)
 
 ---
 
@@ -136,6 +136,7 @@ bash kill-unity.sh --no-snapshot
 | 场景 | 做法 |
 |------|------|
 | PlayMode 卡死 | Apply Mac GPU Safe Guard + 开 Watchdog |
+| Play 角色没打光 / 半透特效发白 | Apply Mac GPU Safe Guard（v1.8.9+，Game 相机开 HDR） |
 | URP 更新后 Play 下 Game 窗口转镜头闪物件 | Apply Mac GPU Safe Guard（v1.8.5+） |
 | Scene 无贴图/黑屏/全白 | Apply SceneGuard（v1.8.8+ 开 Editor 即自动启用 LDR overlay） |
 | 补丁写入 P4 | Settings 选 CL → Apply 对应通道 |
@@ -147,6 +148,7 @@ bash kill-unity.sh --no-snapshot
 
 | 版本 | 要点 |
 |------|------|
+| **v1.8.9** | Play：Game 相机开 HDR，恢复角色打光和半透特效 tonemap |
 | **v1.8.8** | SceneGuard：Mac SceneView LDR overlay，修复全白/全黑 |
 | **v1.8.7** | 主窗口 Settings 去焦点圈，拉高窗口不再被标题栏裁掉 |
 | **v1.8.6** | 自动更新：下载失败重试，不再误报 Unzip failed |

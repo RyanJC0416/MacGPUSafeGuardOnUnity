@@ -1,5 +1,19 @@
 # MacGPUSafeGuard Changelog
 
+## v1.8.9 - 2026-08-28 - Play HDR for character lighting and VFX
+
+### 变更
+
+- **Mac Play 默认打开 Game 相机 HDR**：关 HDR 时角色 Lit 打光会变成剪影，加法半透特效没有 tonemap 会裁成白片
+- 与 Windows 同一套曝光/色调映射；不改主光、不改 TZEffect 混合
+- Metal 带宽更高。若 GPU 超时，把 `MacGPUConfig.allowHDR` 改回 `false`
+
+### 使用
+
+1. 下载 `GpuSafeGuard.app.zip` 解压到 `/Applications/`
+2. Settings → **Apply Mac GPU Safe Guard**（覆盖旧补丁）
+3. 重开 Unity 再 Play，确认角色打光和半透特效
+
 ## v1.8.8 - 2026-08-28 - SceneGuard LDR overlay for Mac SceneView
 
 ### 变更

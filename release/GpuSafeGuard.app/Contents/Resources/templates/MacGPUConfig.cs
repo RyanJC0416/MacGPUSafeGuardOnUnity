@@ -67,9 +67,21 @@ namespace Performance.MacGPU
                  "且会大幅增加帧缓冲内存。默认关闭。")]
         public bool allowMSAA = false;
 
-        [Tooltip("Mac 平台是否启用 HDR。HDR 渲染使颜色缓冲变为 RGBA16F，带宽翻倍。\n" +
-                 "Mac Metal 上根据实际项目需求谨慎开启。")]
-        public bool allowHDR = false;
+        [Tooltip("Mac 平台是否启用 HDR。游戏角色打光和半透特效按 HDR+tonemap 制作。\n" +
+                 "LDR 下 Lit 角色会变剪影、加法特效会裁成白片。Metal 带宽更高，若 GPU 超时再改回 false。")]
+        public bool allowHDR = true;
+
+        [Tooltip("allowHDR=false 且环境光接近纯黑时，补一档 LDR 环境光。\n" +
+                 "Mac 关掉了 RealTimeSkyGI / HDR 自动曝光后，主光 0.4 + 黑环境光会把场景压黑。")]
+        public bool fillBlackAmbientWhenHdrDisabled = true;
+
+        [Tooltip("allowHDR=false 时关掉 LensFlare（镜头光晕鬼影）。\n" +
+                 "不关 Bloom、不压主光/环境光；LDR 下光晕会画成天上那几个死白圆斑。")]
+        public bool muteLensFlareWhenHdrDisabled = true;
+
+        [Tooltip("allowHDR=false 时，只把 TCRender/Base 加法场景片改成 SrcAlpha+One。\n" +
+                 "HDR 开启时不要用。改混合未能修复发白，默认关闭。")]
+        public bool clampLiuguangVfxWhenHdrDisabled = false;
 
         [Header("监控与保护")]
         [Tooltip("启用 GPU 帧时间监控。当连续 N 帧超过阈值时自动降低画质。")]
